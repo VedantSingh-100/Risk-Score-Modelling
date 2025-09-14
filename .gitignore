@@ -1,0 +1,48 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+.venv/
+venv/
+env/
+ENV/
+
+# Data / models / logs (not tracked)
+data/raw/**
+data/interim/**
+artifacts/**
+*.log
+*.pkl
+*.joblib
+
+# OS / IDE
+.DS_Store
+*.swp
+.ipynb_checkpoints/
+.vscode/
+.idea/
+
+# Jupyter
+*.ipynb_checkpoints
+
+# Environment variables
+.env
+.env.local
+
+# Temporary files
+*.tmp
+*.temp
+*~
+
+# SLURM logs
+slurm-*.out
+slurm-*.err
+
+# Large files
+*.parquet
+*.csv
+!configs/*.csv
+!data/processed/*.csv

@@ -1,0 +1,496 @@
+{
+  "fill_rate_threshold": 0.85,
+  "clip_quantiles": [
+    0.001,
+    0.999
+  ],
+  "transforms": {
+    "var201001": {
+      "type": "count",
+      "impute": "zero",
+      "transform": "log1p",
+      "clip": [
+        [
+          0.001,
+          0.999
+        ]
+      ]
+    },
+    "var201010": {
+      "type": "real_nonneg",
+      "impute": "zero",
+      "transform": "log1p",
+      "clip": [
+        [
+          0.001,
+          0.999
+        ]
+      ]
+    },
+    "var201011": {
+      "type": "real_nonneg",
+      "impute": "zero",
+      "transform": "log1p",
+      "clip": [
+        [
+          0.001,
+          0.999
+        ]
+      ]
+    },
+    "var201015": {
+      "type": "real_nonneg",
+      "impute": "zero",
+      "transform": "log1p",
+      "clip": [
+        [
+          0.001,
+          0.999
+        ]
+      ]
+    },
+    "var201016": {
+      "type": "real_nonneg",
+      "impute": "zero",
+      "transform": "log1p",
+      "clip": [
+        [
+          0.001,
+          0.999
+        ]
+      ]
+    },
+    "var201022": {
+      "type": "amount",
+      "impute": "zero",
+      "transform": "log1p",
+      "clip": [
+        [
+          0.001,
+          0.999
+        ]
+      ]
+    },
+    "var201023": {
+      "type": "amount",
+      "impute": "zero",
+      "transform": "log1p",
+      "clip": [
+        [
+          0.001,
+          0.999
+        ]
+      ]
+    },
+    "var201027": {
+      "type": "amount",
+      "impute": "zero",
+      "transform": "log1p",
+      "clip": [
+        [
+          0.001,
+          0.999
+        ]
+      ]
+    },
+    "var201028": {
+      "type": "amount",
+      "impute": "zero",
+      "transform": "log1p",
+      "clip": [
+        [
+          0.001,
+          0.999
+        ]
+      ]
+    },
+    "var201034": {
+      "type": "amount",
+      "impute": "zero",
+      "transform": "log1p",
+      "clip": [
+        [
+          0.001,
+          0.999
+        ]
+      ]
+    },
+    "var201035": {
+      "type": "amount",
+      "impute": "zero",
+      "transform": "log1p",
+      "clip": [
+        [
+          0.001,
+          0.999
+        ]
+      ]
+    },
+    "var201041": {
+      "type": "amount",
+      "impute": "zero",
+      "transform": "log1p",
+      "clip": [
+        [
+          0.001,
+          0.999
+        ]
+      ]
+    },
+    "var201042": {
+      "type": "amount",
+      "impute": "zero",
+      "transform": "log1p",
+      "clip": [
+        [
+          0.001,
+          0.999
+        ]
+      ]
+    },
+    "var201048": {
+      "type": "real_nonneg",
+      "impute": "zero",
+      "transform": "log1p",
+      "clip": [
+        [
+          0.001,
+          0.999
+        ]
+      ]
+    },
+    "var201049": {
+      "type": "real_nonneg",
+      "impute": "zero",
+      "transform": "log1p",
+      "clip": [
+        [
+          0.001,
+          0.999
+        ]
+      ]
+    },
+    "var201053": {
+      "type": "real_nonneg",
+      "impute": "zero",
+      "transform": "log1p",
+      "clip": [
+        [
+          0.001,
+          0.999
+        ]
+      ]
+    },
+    "var201054": {
+      "type": "real_nonneg",
+      "impute": "zero",
+      "transform": "log1p",
+      "clip": [
+        [
+          0.001,
+          0.999
+        ]
+      ]
+    },
+    "var201060": {
+      "type": "amount",
+      "impute": "zero",
+      "transform": "log1p",
+      "clip": [
+        [
+          0.001,
+          0.999
+        ]
+      ]
+    },
+    "var201061": {
+      "type": "amount",
+      "impute": "zero",
+      "transform": "log1p",
+      "clip": [
+        [
+          0.001,
+          0.999
+        ]
+      ]
+    },
+    "var201065": {
+      "type": "amount",
+      "impute": "zero",
+      "transform": "log1p",
+      "clip": [
+        [
+          0.001,
+          0.999
+        ]
+      ]
+    },
+    "var201066": {
+      "type": "amount",
+      "impute": "zero",
+      "transform": "log1p",
+      "clip": [
+        [
+          0.001,
+          0.999
+        ]
+      ]
+    },
+    "var201072": {
+      "type": "amount",
+      "impute": "zero",
+      "transform": "log1p",
+      "clip": [
+        [
+          0.001,
+          0.999
+        ]
+      ]
+    },
+    "var201073": {
+      "type": "amount",
+      "impute": "zero",
+      "transform": "log1p",
+      "clip": [
+        [
+          0.001,
+          0.999
+        ]
+      ]
+    },
+    "var201079": {
+      "type": "amount",
+      "impute": "zero",
+      "transform": "log1p",
+      "clip": [
+        [
+          0.001,
+          0.999
+        ]
+      ]
+    },
+    "var201080": {
+      "type": "amount",
+      "impute": "zero",
+      "transform": "log1p",
+      "clip": [
+        [
+          0.001,
+          0.999
+        ]
+      ]
+    },
+    "var201207": {
+      "type": "ratio_signed",
+      "impute": "median",
+      "transform": "asinh",
+      "clip": [
+        [
+          0.001,
+          0.999
+        ]
+      ]
+    },
+    "var201208": {
+      "type": "ratio_signed",
+      "impute": "median",
+      "transform": "asinh",
+      "clip": [
+        [
+          0.001,
+          0.999
+        ]
+      ]
+    },
+    "var201290": {
+      "type": "amount",
+      "impute": "zero",
+      "transform": "log1p",
+      "clip": [
+        [
+          0.001,
+          0.999
+        ]
+      ]
+    },
+    "var201291": {
+      "type": "vintage",
+      "impute": "median",
+      "scale": null
+    },
+    "var201370": {
+      "type": "amount",
+      "impute": "zero",
+      "transform": "log1p",
+      "clip": [
+        [
+          0.001,
+          0.999
+        ]
+      ]
+    },
+    "var201375": {
+      "type": "amount",
+      "impute": "zero",
+      "transform": "log1p",
+      "clip": [
+        [
+          0.001,
+          0.999
+        ]
+      ]
+    },
+    "var201755": {
+      "type": "vintage",
+      "impute": "median",
+      "scale": null
+    },
+    "var201756": {
+      "type": "vintage",
+      "impute": "median",
+      "scale": null
+    },
+    "var201757": {
+      "type": "vintage",
+      "impute": "median",
+      "scale": null
+    },
+    "var201758": {
+      "type": "vintage",
+      "impute": "median",
+      "scale": null
+    },
+    "var201759": {
+      "type": "vintage",
+      "impute": "median",
+      "scale": null
+    },
+    "var201760": {
+      "type": "vintage",
+      "impute": "median",
+      "scale": null
+    },
+    "var201761": {
+      "type": "vintage",
+      "impute": "median",
+      "scale": null
+    },
+    "var201762": {
+      "type": "vintage",
+      "impute": "median",
+      "scale": null
+    },
+    "var201780": {
+      "type": "vintage",
+      "impute": "median",
+      "scale": null
+    },
+    "var201781": {
+      "type": "vintage",
+      "impute": "median",
+      "scale": null
+    },
+    "var201782": {
+      "type": "amount",
+      "impute": "zero",
+      "transform": "log1p",
+      "clip": [
+        [
+          0.001,
+          0.999
+        ]
+      ]
+    },
+    "var201783": {
+      "type": "amount",
+      "impute": "zero",
+      "transform": "log1p",
+      "clip": [
+        [
+          0.001,
+          0.999
+        ]
+      ]
+    },
+    "var201784": {
+      "type": "amount",
+      "impute": "zero",
+      "transform": "log1p",
+      "clip": [
+        [
+          0.001,
+          0.999
+        ]
+      ]
+    },
+    "var201785": {
+      "type": "amount",
+      "impute": "zero",
+      "transform": "log1p",
+      "clip": [
+        [
+          0.001,
+          0.999
+        ]
+      ]
+    },
+    "var101005": {
+      "type": "real_nonneg",
+      "impute": "zero",
+      "transform": "log1p",
+      "clip": [
+        [
+          0.001,
+          0.999
+        ]
+      ]
+    },
+    "var101001": {
+      "type": "vintage",
+      "impute": "median",
+      "scale": null
+    },
+    "var101004": {
+      "type": "score",
+      "impute": "median",
+      "scale": "robust"
+    },
+    "var101006": {
+      "type": "score",
+      "impute": "median",
+      "scale": "robust"
+    },
+    "var101025": {
+      "type": "score",
+      "impute": "median",
+      "scale": "robust"
+    },
+    "var101030": {
+      "type": "score",
+      "impute": "median",
+      "scale": "robust"
+    },
+    "var301003": {
+      "type": "real_nonneg",
+      "impute": "zero",
+      "transform": "log1p",
+      "clip": [
+        [
+          0.001,
+          0.999
+        ]
+      ]
+    },
+    "var308001": {
+      "type": "real_nonneg",
+      "impute": "zero",
+      "transform": "log1p",
+      "clip": [
+        [
+          0.001,
+          0.999
+        ]
+      ]
+    }
+  }
+}

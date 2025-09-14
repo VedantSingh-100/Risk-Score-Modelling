@@ -1,0 +1,21 @@
+{
+  "logit_en": {
+    "model": "logit_en",
+    "mean_auc": 0.8164815998256817,
+    "std_auc": 7.228845241480193e-05,
+    "mean_ap": 0.8324803997025991,
+    "std_ap": 6.878716034231972e-05,
+    "mean_jaccard_top20": 1.0
+  },
+  "gbdt": {
+    "model": "gbdt",
+    "mean_auc": 0.85623915748259,
+    "std_auc": 0.000316732218844418,
+    "mean_ap": 0.8722858240671943,
+    "std_ap": 0.00027596042437096215,
+    "mean_jaccard_top20": 1.0
+  },
+  "n_features_after_prune": 36,
+  "n_features_before_prune": 53,
+  "label": "label"
+}

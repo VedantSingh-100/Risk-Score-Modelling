@@ -1,0 +1,170 @@
+{
+  "candidates": [
+    {
+      "name": "var501102",
+      "severity": 0.9,
+      "description": "No. of BNPL Defaults [Between 60-90 Days]"
+    },
+    {
+      "name": "var501056",
+      "severity": 0.85,
+      "description": "No. of BNPL Defaults [Last 2 Months]"
+    },
+    {
+      "name": "var501057",
+      "severity": 0.85,
+      "description": "No. of BNPL Defaults [Last 1 Month]"
+    },
+    {
+      "name": "var501058",
+      "severity": 0.85,
+      "description": "No. of BNPL Defaults [Last 15 Days]"
+    },
+    {
+      "name": "var501059",
+      "severity": 0.85,
+      "description": "No. of BNPL Defaults [Last 7 Days]"
+    },
+    {
+      "name": "var501101",
+      "severity": 0.85,
+      "description": "No. of BNPL Defaults [Between 30-60 Days]"
+    },
+    {
+      "name": "var202077",
+      "severity": 0.85,
+      "description": "No. of Credit Card Defaults [Last 28 Days]"
+    },
+    {
+      "name": "var501055",
+      "severity": 0.85,
+      "description": "No. of BNPL Defaults [Last 3 Months]"
+    },
+    {
+      "name": "var501060",
+      "severity": 0.75,
+      "description": "Flag - BNPL Overdue Occurrence [Lifetime]"
+    },
+    {
+      "name": "var206063",
+      "severity": 0.85,
+      "description": "No. of Loan Defaults [Last 28 Days]"
+    },
+    {
+      "name": "var206064",
+      "severity": 0.85,
+      "description": "No. of Loan Defaults [Last 21 Days]"
+    },
+    {
+      "name": "var206065",
+      "severity": 0.85,
+      "description": "No. of Loan Defaults [Last 14 Days]"
+    },
+    {
+      "name": "var206066",
+      "severity": 0.85,
+      "description": "No. of Loan Defaults [Last 7 Days]"
+    },
+    {
+      "name": "var501052",
+      "severity": 0.85,
+      "description": "No. of BNPL Defaults [Lifetime]"
+    },
+    {
+      "name": "var501053",
+      "severity": 0.85,
+      "description": "No. of BNPL Defaults [Last 12 Months]"
+    },
+    {
+      "name": "var501054",
+      "severity": 0.85,
+      "description": "No. of BNPL Defaults [Last 6 Months]"
+    }
+  ],
+  "policy_variants": {
+    "label_union": {
+      "type": "union",
+      "severe_cols": [
+        "var501102",
+        "var501056",
+        "var501057",
+        "var501058",
+        "var501059",
+        "var501101",
+        "var202077",
+        "var501055",
+        "var501060",
+        "var206063",
+        "var206064",
+        "var206065",
+        "var206066",
+        "var501052",
+        "var501053",
+        "var501054"
+      ]
+    },
+    "label_hier": {
+      "type": "hierarchical",
+      "order": [
+        "var501102",
+        "var501056",
+        "var501057",
+        "var501058",
+        "var501059",
+        "var501101",
+        "var202077",
+        "var501055",
+        "var206063",
+        "var206064",
+        "var206065",
+        "var206066",
+        "var501052",
+        "var501053",
+        "var501054",
+        "var501060"
+      ]
+    },
+    "label_severity_wt": {
+      "type": "severity_weighted",
+      "weights": {
+        "var501102": 0.9,
+        "var501056": 0.85,
+        "var501057": 0.85,
+        "var501058": 0.85,
+        "var501059": 0.85,
+        "var501101": 0.85,
+        "var202077": 0.85,
+        "var501055": 0.85,
+        "var501060": 0.75,
+        "var206063": 0.85,
+        "var206064": 0.85,
+        "var206065": 0.85,
+        "var206066": 0.85,
+        "var501052": 0.85,
+        "var501053": 0.85,
+        "var501054": 0.85
+      },
+      "threshold": 0.6
+    }
+  },
+  "evaluation": [
+    {
+      "label_variant": "label_union",
+      "auc": NaN,
+      "brier": NaN,
+      "pos_rate": 0.0588
+    },
+    {
+      "label_variant": "label_hier",
+      "auc": NaN,
+      "brier": NaN,
+      "pos_rate": 0.0588
+    },
+    {
+      "label_variant": "label_severity_wt",
+      "auc": NaN,
+      "brier": NaN,
+      "pos_rate": 0.0588
+    }
+  ]
+}

@@ -1,157 +1,190 @@
-var201005
-var201224
-var201243
-var201244
-var201245
-var201246
-var201247
-var201263
-var201264
-var201265
-var201266
-var201267
-var201268
-var201269
-var201270
-var201271
-var201272
-var201680
-var201681
-var202003
-var202057
-var202058
-var202059
-var202060
-var202061
-var202065
-var202067
-var202068
-var202069
-var202070
-var202071
-var202077
-var202078
-var202079
-var202080
-var202089
-var202185
-var202186
-var202187
-var202188
-var202189
-var202190
-var203024
-var203025
-var203026
-var203027
-var203028
-var203029
-var203041
-var203042
-var203043
-var203044
-var203045
-var203066
-var206002
-var206020
-var206021
-var206022
-var206023
-var206024
-var206025
-var206026
-var206027
-var206028
-var206029
-var206049
-var206050
-var206063
-var206064
-var206065
-var206066
-var206072
-var206073
-var206074
-var206075
-var206076
-var206086
-var206087
-var206088
-var206089
-var206090
-var206092
-var206180
-var206181
-var207014
-var207015
-var207018
-var207019
-var301027
-var301028
-var301057
-var301058
-var301061
-var301062
-var301063
-var301064
-var301067
-var301068
-var302006
-var302007
-var302014
-var302015
-var304007
-var304008
-var304009
-var308002
-var308011
-var308012
-var308013
-var308014
-var308015
-var501003
-var501004
-var501005
-var501036
-var501037
-var501038
-var501039
-var501040
-var501041
-var501042
-var501043
-var501044
-var501045
-var501046
-var501047
-var501048
-var501049
-var501050
-var501051
-var501052
-var501053
-var501054
-var501055
-var501056
-var501057
-var501058
-var501059
-var501060
-var501100
-var501101
-var501102
-var501103
-var501104
-var501105
-var501106
-var701002
-var701007
-var701022
-var701023
-var701024
-var701025
-var701026
-var701027
-var701028
-var701029
-var901012
+variable,reason
+var202190,Contains outcome tokens or used in label construction
+var202188,Contains outcome tokens or used in label construction
+var201243,Contains outcome tokens or used in label construction
+var308015,Contains outcome tokens or used in label construction
+var206092,Contains outcome tokens or used in label construction
+var701027,Contains outcome tokens or used in label construction
+var206065,Contains outcome tokens or used in label construction
+var201266,Contains outcome tokens or used in label construction
+var501051,Contains outcome tokens or used in label construction
+var501003,Contains outcome tokens or used in label construction
+var202068,Contains outcome tokens or used in label construction
+var201661,Contains outcome tokens or used in label construction
+var302007,Contains outcome tokens or used in label construction
+var701022,Contains outcome tokens or used in label construction
+var201224,Contains outcome tokens or used in label construction
+var501046,Contains outcome tokens or used in label construction
+var701023,Contains outcome tokens or used in label construction
+var501096,Contains outcome tokens or used in label construction
+var206088,Contains outcome tokens or used in label construction
+var206020,Contains outcome tokens or used in label construction
+var202003,Contains outcome tokens or used in label construction
+var202080,Contains outcome tokens or used in label construction
+var501041,Contains outcome tokens or used in label construction
+var202186,Contains outcome tokens or used in label construction
+var501052,Contains outcome tokens or used in label construction
+var207019,Contains outcome tokens or used in label construction
+var206087,Contains outcome tokens or used in label construction
+var501005,Contains outcome tokens or used in label construction
+var202052,Contains outcome tokens or used in label construction
+var202067,Contains outcome tokens or used in label construction
+var301061,Contains outcome tokens or used in label construction
+var201250,Contains outcome tokens or used in label construction
+var201259,Contains outcome tokens or used in label construction
+var207029,Contains outcome tokens or used in label construction
+var207014,Contains outcome tokens or used in label construction
+var201261,Contains outcome tokens or used in label construction
+var501106,Contains outcome tokens or used in label construction
+var203026,Contains outcome tokens or used in label construction
+var201005,Contains outcome tokens or used in label construction
+var501044,Contains outcome tokens or used in label construction
+var501102,Contains outcome tokens or used in label construction
+var201264,Contains outcome tokens or used in label construction
+var701028,Contains outcome tokens or used in label construction
+var201680,Contains outcome tokens or used in label construction
+var206066,Contains outcome tokens or used in label construction
+var202060,Contains outcome tokens or used in label construction
+var202069,Contains outcome tokens or used in label construction
+var206024,Contains outcome tokens or used in label construction
+var304009,Contains outcome tokens or used in label construction
+var206028,Contains outcome tokens or used in label construction
+var201253,Contains outcome tokens or used in label construction
+var201257,Contains outcome tokens or used in label construction
+var501043,Contains outcome tokens or used in label construction
+var207031,Contains outcome tokens or used in label construction
+var304008,Contains outcome tokens or used in label construction
+var206180,Contains outcome tokens or used in label construction
+var201271,Contains outcome tokens or used in label construction
+var301058,Contains outcome tokens or used in label construction
+var201269,Contains outcome tokens or used in label construction
+var202057,Contains outcome tokens or used in label construction
+var206075,Contains outcome tokens or used in label construction
+var206090,Contains outcome tokens or used in label construction
+var201258,Contains outcome tokens or used in label construction
+var202070,Contains outcome tokens or used in label construction
+var501058,Contains outcome tokens or used in label construction
+var201248,Contains outcome tokens or used in label construction
+var201252,Contains outcome tokens or used in label construction
+var701025,Contains outcome tokens or used in label construction
+var501094,Contains outcome tokens or used in label construction
+var501048,Contains outcome tokens or used in label construction
+var202054,Contains outcome tokens or used in label construction
+var201246,Contains outcome tokens or used in label construction
+var201681,Contains outcome tokens or used in label construction
+var202189,Contains outcome tokens or used in label construction
+var501060,Contains outcome tokens or used in label construction
+var201244,Contains outcome tokens or used in label construction
+var206029,Contains outcome tokens or used in label construction
+var501095,Contains outcome tokens or used in label construction
+var301064,Contains outcome tokens or used in label construction
+var203025,Contains outcome tokens or used in label construction
+var201251,Contains outcome tokens or used in label construction
+var202089,Contains outcome tokens or used in label construction
+var206023,Contains outcome tokens or used in label construction
+var302015,Contains outcome tokens or used in label construction
+var304007,Contains outcome tokens or used in label construction
+var501053,Contains outcome tokens or used in label construction
+var501038,Contains outcome tokens or used in label construction
+var701029,Contains outcome tokens or used in label construction
+var207030,Contains outcome tokens or used in label construction
+var203028,Contains outcome tokens or used in label construction
+var203024,Contains outcome tokens or used in label construction
+var207015,Contains outcome tokens or used in label construction
+var501100,Contains outcome tokens or used in label construction
+var206002,Contains outcome tokens or used in label construction
+var203044,Contains outcome tokens or used in label construction
+var206022,Contains outcome tokens or used in label construction
+var501039,Contains outcome tokens or used in label construction
+var201256,Contains outcome tokens or used in label construction
+var701024,Contains outcome tokens or used in label construction
+var201247,Contains outcome tokens or used in label construction
+var206076,Contains outcome tokens or used in label construction
+var301068,Contains outcome tokens or used in label construction
+var206027,Contains outcome tokens or used in label construction
+var501040,Contains outcome tokens or used in label construction
+var501059,Contains outcome tokens or used in label construction
+var201268,Contains outcome tokens or used in label construction
+var206026,Contains outcome tokens or used in label construction
+var501103,Contains outcome tokens or used in label construction
+var206064,Contains outcome tokens or used in label construction
+var207028,Contains outcome tokens or used in label construction
+var202079,Contains outcome tokens or used in label construction
+var202071,Contains outcome tokens or used in label construction
+var206089,Contains outcome tokens or used in label construction
+var301028,Contains outcome tokens or used in label construction
+var301062,Contains outcome tokens or used in label construction
+var501037,Contains outcome tokens or used in label construction
+var201249,Contains outcome tokens or used in label construction
+var206074,Contains outcome tokens or used in label construction
+var202072,Contains outcome tokens or used in label construction
+var302014,Contains outcome tokens or used in label construction
+var201245,Contains outcome tokens or used in label construction
+var201263,Contains outcome tokens or used in label construction
+var206063,Contains outcome tokens or used in label construction
+var501036,Contains outcome tokens or used in label construction
+var501045,Contains outcome tokens or used in label construction
+var501055,Contains outcome tokens or used in label construction
+var206049,Contains outcome tokens or used in label construction
+var501057,Contains outcome tokens or used in label construction
+var206073,Contains outcome tokens or used in label construction
+var201660,Contains outcome tokens or used in label construction
+var202061,Contains outcome tokens or used in label construction
+var201265,Contains outcome tokens or used in label construction
+var206021,Contains outcome tokens or used in label construction
+var501101,Contains outcome tokens or used in label construction
+var301057,Contains outcome tokens or used in label construction
+var308012,Contains outcome tokens or used in label construction
+var501104,Contains outcome tokens or used in label construction
+var201270,Contains outcome tokens or used in label construction
+var308014,Contains outcome tokens or used in label construction
+var201254,Contains outcome tokens or used in label construction
+var308011,Contains outcome tokens or used in label construction
+var201260,Contains outcome tokens or used in label construction
+var201272,Contains outcome tokens or used in label construction
+var301027,Contains outcome tokens or used in label construction
+var202059,Contains outcome tokens or used in label construction
+var203027,Contains outcome tokens or used in label construction
+var203045,Contains outcome tokens or used in label construction
+var501042,Contains outcome tokens or used in label construction
+var201255,Contains outcome tokens or used in label construction
+var308013,Contains outcome tokens or used in label construction
+var202055,Contains outcome tokens or used in label construction
+var202073,Contains outcome tokens or used in label construction
+var202077,Contains outcome tokens or used in label construction
+var701007,Contains outcome tokens or used in label construction
+var501054,Contains outcome tokens or used in label construction
+var202078,Contains outcome tokens or used in label construction
+var203041,Contains outcome tokens or used in label construction
+var308002,Contains outcome tokens or used in label construction
+var206086,Contains outcome tokens or used in label construction
+var202053,Contains outcome tokens or used in label construction
+var501093,Contains outcome tokens or used in label construction
+var302006,Contains outcome tokens or used in label construction
+var501004,Contains outcome tokens or used in label construction
+var301063,Contains outcome tokens or used in label construction
+var501050,Contains outcome tokens or used in label construction
+var206050,Contains outcome tokens or used in label construction
+var206025,Contains outcome tokens or used in label construction
+var501047,Contains outcome tokens or used in label construction
+var201262,Contains outcome tokens or used in label construction
+var202187,Contains outcome tokens or used in label construction
+var201267,Contains outcome tokens or used in label construction
+var501049,Contains outcome tokens or used in label construction
+var701002,Contains outcome tokens or used in label construction
+var501056,Contains outcome tokens or used in label construction
+var203029,Contains outcome tokens or used in label construction
+var202185,Contains outcome tokens or used in label construction
+var203043,Contains outcome tokens or used in label construction
+var501105,Contains outcome tokens or used in label construction
+var202058,Contains outcome tokens or used in label construction
+var203042,Contains outcome tokens or used in label construction
+var206072,Contains outcome tokens or used in label construction
+var301067,Contains outcome tokens or used in label construction
+var203066,Contains outcome tokens or used in label construction
+var901012,Contains outcome tokens or used in label construction
+var701026,Contains outcome tokens or used in label construction
+var202056,Contains outcome tokens or used in label construction
+var206181,Contains outcome tokens or used in label construction
+var207018,Contains outcome tokens or used in label construction
+var202065,Contains outcome tokens or used in label construction

@@ -46,3 +46,4 @@ slurm-*.err
 *.csv
 !configs/*.csv
 !data/processed/*.csv
+

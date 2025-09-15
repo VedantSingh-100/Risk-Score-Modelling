@@ -1,0 +1,1144 @@
+diff --git a/docs/SWEEP_USAGE.md b/docs/SWEEP_USAGE.md
+new file mode 100644
+index 0000000..6a9e1f9
+--- /dev/null
++++ b/docs/SWEEP_USAGE.md
+@@ -0,0 +1,236 @@
++# Risk Model Hyperparameter Sweep Usage Guide
++
++This guide explains how to run the comprehensive hyperparameter sweep and MLP stacking pipeline with Weights & Biases logging.
++
++## 🎯 Overview
++
++The pipeline consists of two main stages:
++1. **GBDT Hyperparameter Sweep**: Optimizes XGBoost or LightGBM using Optuna
++2. **MLP + Stacking**: Trains neural network and creates calibrated ensemble
++
++All runs are logged to Weights & Biases project "Risk Score" with clear run names for easy comparison.
++
++## 🚀 Quick Start
++
++### Local Testing (Quick)
++```bash
++# Quick test with 10 trials, 3-fold CV
++bash scripts/run_quick_sweep.sh xgb
++```
++
++### Local Full Run
++```bash
++# Full XGBoost sweep (60 trials, 5-fold CV)
++bash scripts/run_risk_model_sweep.sh xgb 60
++
++# Full LightGBM sweep
++bash scripts/run_risk_model_sweep.sh lgb 60
++```
++
++### HPC Deployment
++```bash
++# Submit XGBoost sweep to SLURM
++sbatch submit_risk_sweep_job.sh xgb 60
++
++# Submit LightGBM sweep to SLURM  
++sbatch submit_risk_sweep_job.sh lgb 60
++```
++
++## 📊 Weights & Biases Integration
++
++### Project Configuration
++- **Project Name**: "Risk Score"
++- **API Key**: Configured in scripts (update if needed)
++- **Run Names**: 
++  - GBDT: `XGB_Sweep_60trials_YYYYMMDD_HHMMSS`
++  - Stacking: `Stack_XGB+MLP_YYYYMMDD_HHMMSS`
++
++### Logged Metrics
++**GBDT Sweep Runs:**
++- `cv_auc_mean` - Cross-validation AUC (primary metric)
++- `cv_auc_std` - AUC standard deviation
++- `param_*` - All hyperparameters being optimized
++- `trial` - Trial number
++- `best_cv_auc` - Best score achieved
++- `final_oof_auc` - Out-of-fold AUC with best params
++
++**Stacking Runs:**
++- Model comparison metrics (XGB vs MLP vs Stack)
++- Final ensemble performance
++- Calibration improvements
++
++## 🔧 Configuration Options
++
++### Algorithm Selection
++```bash
++# XGBoost (default)
++bash scripts/run_risk_model_sweep.sh xgb
++
++# LightGBM
++bash scripts/run_risk_model_sweep.sh lgb
++```
++
++### Hyperparameter Search Space
++
++**XGBoost Parameters:**
++- `n_estimators`: 500-2000
++- `learning_rate`: 0.01-0.3 (log scale)
++- `max_depth`: 3-10
++- `subsample`: 0.6-1.0
++- `colsample_bytree`: 0.6-1.0
++- `reg_alpha`: 1e-8 to 10.0 (log scale)
++- `reg_lambda`: 1e-8 to 10.0 (log scale)
++- `min_child_weight`: 1-10
++
++**LightGBM Parameters:**
++- `n_estimators`: 500-2000
++- `learning_rate`: 0.01-0.3 (log scale)
++- `num_leaves`: 10-300
++- `max_depth`: 3-10
++- `subsample`: 0.6-1.0
++- `colsample_bytree`: 0.6-1.0
++- `reg_alpha`: 1e-8 to 10.0 (log scale)
++- `reg_lambda`: 1e-8 to 10.0 (log scale)
++- `min_child_samples`: 5-100
++
++### Custom Parameters
++```bash
++# Custom number of trials and CV folds
++bash scripts/run_risk_model_sweep.sh xgb 100 5 42
++#                                    ^   ^   ^ ^
++#                                    |   |   | └─ seed
++#                                    |   |   └─── cv_folds  
++#                                    |   └─────── trials
++#                                    └─────────── algorithm
++```
++
++## 📁 Output Structure
++
++```
++model_outputs/
++├── gbdt_sweep_xgb/                 # GBDT optimization results
++│   ├── best_params.json           # Optimal hyperparameters
++│   ├── final_results.json         # Complete results summary
++│   ├── all_trials.csv             # All optimization trials
++│   ├── oof_predictions.csv        # Out-of-fold predictions
++│   └── decile_analysis.csv        # Performance by decile
++└── stack_xgb/                     # Stacking results
++    ├── summary.csv                # Model comparison
++    ├── oof_predictions.csv        # All model predictions
++    ├── stacker_logit.json         # Stacking coefficients
++    └── deciles_*.csv              # Decile analysis per model
++```
++
++## 🎯 Key Files Explained
++
++### `best_params.json`
++```json
++{
++  "algorithm": "xgb",
++  "best_score": 0.876543,
++  "best_params": {
++    "n_estimators": 1200,
++    "learning_rate": 0.05,
++    "max_depth": 6,
++    ...
++  },
++  "final_oof_auc": 0.875123,
++  "final_oof_ap": 0.881234
++}
++```
++
++### `summary.csv` (Stacking Results)
++```csv
++model,auc,ap,gini,ks
++xgb,0.8751,0.8812,0.7502,0.6234
++mlp,0.8698,0.8756,0.7396,0.6123
++stack,0.8789,0.8845,0.7578,0.6289
++```
++
++## 🔍 Monitoring Progress
++
++### Real-time Monitoring
++1. **W&B Dashboard**: https://wandb.ai/[username]/Risk%20Score
++2. **Local Logs**: Watch script output for progress
++3. **HPC Logs**: `tail -f artifacts/logs/risk_sweep_[JOBID].out`
++
++### Key Metrics to Watch
++- **CV AUC**: Primary optimization metric (higher is better)
++- **Trial Progress**: Number of completed trials
++- **Best Score**: Current best CV AUC found
++- **Parameter Trends**: Which parameters lead to better performance
++
++## 🚨 Troubleshooting
++
++### Common Issues
++
++**Missing Dependencies:**
++```bash
++pip install optuna wandb xgboost lightgbm
++```
++
++**W&B Authentication:**
++```bash
++wandb login
++# Or set WANDB_API_KEY in script
++```
++
++**Memory Issues:**
++- Reduce `--trials` parameter
++- Reduce `--n-splits` for CV
++- Use smaller dataset for testing
++
++**HPC Job Failures:**
++- Check SLURM logs in `artifacts/logs/`
++- Verify data files exist in `data/processed/`
++- Ensure conda environment is activated
++
++### Performance Tips
++
++**Speed Optimization:**
++- Use `run_quick_sweep.sh` for testing
++- Reduce trials for initial validation
++- Use fewer CV folds for faster iteration
++
++**Quality Optimization:**
++- Increase trials for better hyperparameter search
++- Use 5-fold CV for robust validation
++- Run multiple seeds for stability analysis
++
++## 📈 Expected Results
++
++### Typical Performance
++- **Baseline XGBoost**: ~0.85-0.87 AUC
++- **Optimized XGBoost**: ~0.87-0.89 AUC
++- **MLP**: ~0.86-0.88 AUC
++- **Stacked Ensemble**: ~0.88-0.90 AUC
++
++### Runtime Estimates
++- **Quick Test (10 trials)**: 10-20 minutes
++- **Full Sweep (60 trials)**: 4-8 hours
++- **MLP Stacking**: 30-60 minutes
++
++## 🔄 Iterative Improvement
++
++### Workflow Recommendations
++1. Start with `run_quick_sweep.sh` for validation
++2. Run full sweep with best algorithm
++3. Analyze W&B results for parameter insights
++4. Adjust search space if needed
++5. Run production sweep with optimized parameters
++
++### Parameter Analysis
++Use W&B parallel coordinates plot to understand:
++- Which parameters matter most
++- Parameter interaction effects
++- Optimal parameter ranges
++- Diminishing returns on trials
++
++## 🎉 Next Steps
++
++After successful sweep completion:
++1. **Review W&B Dashboard** for detailed analysis
++2. **Extract Best Parameters** from `best_params.json`
++3. **Validate Stacking Performance** in `summary.csv`
++4. **Deploy Best Model** using optimal configuration
++5. **Document Results** for future reference
+diff --git a/requirements.txt b/requirements.txt
+index 7303469..92fcad1 100644
+--- a/requirements.txt
++++ b/requirements.txt
+@@ -9,4 +9,5 @@ matplotlib>=3.8
+ seaborn>=0.12
+ joblib>=1.3
+ openpyxl>=3.1
+-xlrd>=2.0
+\ No newline at end of file
++xlrd>=2.0
++wandb>=0.16
+\ No newline at end of file
+diff --git a/scripts/run_quick_sweep.sh b/scripts/run_quick_sweep.sh
+new file mode 100755
+index 0000000..36a5902
+--- /dev/null
++++ b/scripts/run_quick_sweep.sh
+@@ -0,0 +1,29 @@
++#!/bin/bash
++# Quick Risk Model Sweep (for testing)
++# Runs a smaller sweep for validation
++
++set -euo pipefail
++
++echo "🚀 Quick Risk Model Sweep (Testing)"
++echo "=================================="
++
++# Weights & Biases Configuration
++export WANDB_PROJECT="Risk Score"
++export WANDB_API_KEY="3ff6a13421fb5921502235dde3f9a4700f33b5b8"
++export WANDB_MODE="online"
++
++# Quick test configuration
++ALGO="${1:-xgb}"
++TRIALS=10  # Reduced for quick testing
++N_SPLITS=3  # Reduced for speed
++SEED=42
++
++echo "Algorithm: ${ALGO^^}"
++echo "Trials: $TRIALS (quick test)"
++echo "CV Folds: $N_SPLITS"
++echo "Start: $(date)"
++
++# Run the main pipeline with reduced parameters
++bash scripts/run_risk_model_sweep.sh "$ALGO" "$TRIALS" "$N_SPLITS" "$SEED"
++
++echo "✅ Quick sweep completed!"
+diff --git a/scripts/run_risk_model_sweep.sh b/scripts/run_risk_model_sweep.sh
+new file mode 100755
+index 0000000..828a27b
+--- /dev/null
++++ b/scripts/run_risk_model_sweep.sh
+@@ -0,0 +1,293 @@
++#!/bin/bash
++# Risk Model Hyperparameter Sweep & MLP Stacking Pipeline
++# Runs GBDT optimization followed by MLP stacking with W&B logging
++
++set -euo pipefail
++
++# =============================================================================
++# Configuration
++# =============================================================================
++
++# Weights & Biases Configuration
++export WANDB_API_KEY="3ff6a13421fb5921502235dde3f9a4700f33b5b8"
++export WANDB_MODE="online"
++WANDB_PROJECT="Risk Score"
++
++# Pipeline Configuration
++ALGO="${1:-xgb}"  # xgb or lgb
++TRIALS="${2:-60}"
++N_SPLITS="${3:-5}"
++SEED="${4:-42}"
++
++# Paths
++DATA_ROOT="data/processed"
++OUTPUT_ROOT="model_outputs"
++GBDT_OUTPUT="${OUTPUT_ROOT}/gbdt_sweep_${ALGO}"
++STACK_OUTPUT="${OUTPUT_ROOT}/stack_${ALGO}"
++
++# =============================================================================
++# Setup and Validation
++# =============================================================================
++
++echo "=========================================="
++echo "🚀 Risk Model Hyperparameter Sweep Pipeline"
++echo "=========================================="
++echo "Algorithm: ${ALGO^^}"
++echo "Trials: $TRIALS"
++echo "CV Folds: $N_SPLITS"
++echo "Random Seed: $SEED"
++echo "W&B Project: $WANDB_PROJECT"
++echo "Start Time: $(date)"
++echo "=========================================="
++
++# Validate inputs
++if [[ "$ALGO" != "xgb" && "$ALGO" != "lgb" ]]; then
++    echo "❌ Error: Algorithm must be 'xgb' or 'lgb'"
++    exit 1
++fi
++
++# Check required files
++echo "🔍 Validating input files..."
++required_files=(
++    "$DATA_ROOT/X_features.parquet"
++    "$DATA_ROOT/y_label.csv"
++)
++
++for file in "${required_files[@]}"; do
++    if [[ -f "$file" ]]; then
++        echo "✓ Found: $file"
++    else
++        echo "❌ Missing: $file"
++        exit 1
++    fi
++done
++
++# Create output directories
++mkdir -p "$GBDT_OUTPUT" "$STACK_OUTPUT"
++
++# Check Python environment
++echo "🐍 Python Environment:"
++echo "- Python: $(python --version)"
++echo "- Working Directory: $(pwd)"
++
++# Check required packages
++echo "📦 Checking required packages..."
++python -c "
++import sys
++required = ['pandas', 'numpy', 'scikit-learn', 'tqdm']
++if '$ALGO' == 'xgb':
++    required.append('xgboost')
++else:
++    required.append('lightgbm')
++
++try:
++    import wandb
++    required.append('wandb')
++    print('✓ W&B available')
++except ImportError:
++    print('⚠️ W&B not available - logging disabled')
++
++missing = []
++for pkg in required:
++    try:
++        __import__(pkg)
++        print(f'✓ {pkg}')
++    except ImportError:
++        missing.append(pkg)
++        print(f'❌ {pkg}')
++
++if missing:
++    print(f'Missing packages: {missing}')
++    sys.exit(1)
++else:
++    print('✅ All required packages available')
++"
++
++# =============================================================================
++# Part A: GBDT Hyperparameter Sweep
++# =============================================================================
++
++echo ""
++echo "=========================================="
++echo "📊 Part A: GBDT Hyperparameter Sweep"
++echo "=========================================="
++echo "Algorithm: ${ALGO^^}"
++echo "Trials: $TRIALS"
++echo "Output: $GBDT_OUTPUT"
++echo ""
++
++# Set W&B run name for GBDT sweep
++export WANDB_RUN_NAME="${ALGO^^}_Sweep_${TRIALS}trials_$(date +%Y%m%d_%H%M%S)"
++
++echo "🎯 Starting ${ALGO^^} hyperparameter optimization..."
++echo "W&B Run: $WANDB_RUN_NAME"
++
++start_time=$(date +%s)
++
++python -m src.train_gbdt_sweep \
++    --data-root "$DATA_ROOT" \
++    --out-dir "$GBDT_OUTPUT" \
++    --algo "$ALGO" \
++    --trials "$TRIALS" \
++    --n-splits "$N_SPLITS" \
++    --seed "$SEED" \
++    --wandb \
++    --wandb-project "$WANDB_PROJECT"
++
++gbdt_exit_code=$?
++end_time=$(date +%s)
++gbdt_runtime=$((end_time - start_time))
++
++if [[ $gbdt_exit_code -eq 0 ]]; then
++    echo "✅ GBDT sweep completed successfully!"
++    echo "⏱️ Runtime: ${gbdt_runtime}s"
++    
++    # Display best results
++    if [[ -f "$GBDT_OUTPUT/best_params.json" ]]; then
++        echo ""
++        echo "🏆 Best Results:"
++        python -c "
++import json
++with open('$GBDT_OUTPUT/best_params.json', 'r') as f:
++    results = json.load(f)
++print(f'Best Trial: #{results[\"trial\"]}')
++print(f'Best AUC: {results[\"auc\"]:.6f}')
++print(f'Best AP: {results[\"ap\"]:.6f}')
++"
++    fi
++else
++    echo "❌ GBDT sweep failed with exit code: $gbdt_exit_code"
++    echo "Check logs for details"
++    exit $gbdt_exit_code
++fi
++
++# =============================================================================
++# Part B: MLP + Calibrated Stacking
++# =============================================================================
++
++echo ""
++echo "=========================================="
++echo "🧠 Part B: MLP + Calibrated Stacking"
++echo "=========================================="
++echo "Using best GBDT params from: $GBDT_OUTPUT/best_params.json"
++echo "Output: $STACK_OUTPUT"
++echo ""
++
++# Set W&B run name for stacking
++export WANDB_RUN_NAME="Stack_${ALGO^^}+MLP_$(date +%Y%m%d_%H%M%S)"
++
++echo "🎯 Starting MLP + Stacking pipeline..."
++echo "W&B Run: $WANDB_RUN_NAME"
++
++start_time=$(date +%s)
++
++# Initialize W&B for stacking run
++python -c "
++try:
++    import wandb
++    wandb.init(
++        project='$WANDB_PROJECT',
++        name='$WANDB_RUN_NAME',
++        config={
++            'stage': 'stacking',
++            'base_algorithm': '$ALGO',
++            'n_splits': $N_SPLITS,
++            'seed': $SEED,
++            'gbdt_trials': $TRIALS
++        }
++    )
++    print('✓ W&B initialized for stacking')
++    wandb.finish()
++except ImportError:
++    print('⚠️ W&B not available for stacking')
++"
++
++python -m src.train_mlp_stack \
++    --data-root "$DATA_ROOT" \
++    --out-dir "$STACK_OUTPUT" \
++    --best-xgb-params "$GBDT_OUTPUT/best_params.json" \
++    --n-splits "$N_SPLITS" \
++    --seed "$SEED"
++
++stack_exit_code=$?
++end_time=$(date +%s)
++stack_runtime=$((end_time - start_time))
++
++if [[ $stack_exit_code -eq 0 ]]; then
++    echo "✅ MLP stacking completed successfully!"
++    echo "⏱️ Runtime: ${stack_runtime}s"
++    
++    # Display stacking results
++    if [[ -f "$STACK_OUTPUT/summary.csv" ]]; then
++        echo ""
++        echo "🏆 Stacking Results:"
++        python -c "
++import pandas as pd
++df = pd.read_csv('$STACK_OUTPUT/summary.csv')
++print(df.to_string(index=False))
++"
++    fi
++else
++    echo "❌ MLP stacking failed with exit code: $stack_exit_code"
++    echo "Check logs for details"
++    exit $stack_exit_code
++fi
++
++# =============================================================================
++# Final Summary and Cleanup
++# =============================================================================
++
++total_runtime=$((gbdt_runtime + stack_runtime))
++total_runtime_formatted=$(printf '%02d:%02d:%02d' $((total_runtime/3600)) $((total_runtime%3600/60)) $((total_runtime%60)))
++
++echo ""
++echo "=========================================="
++echo "🎉 Pipeline Completion Summary"
++echo "=========================================="
++echo "Total Runtime: $total_runtime_formatted (HH:MM:SS)"
++echo "End Time: $(date)"
++echo ""
++
++echo "📁 Generated Artifacts:"
++echo ""
++echo "GBDT Sweep Results ($GBDT_OUTPUT):"
++echo "  ✓ best_params.json - Optimal hyperparameters"
++echo "  ✓ final_results.json - Complete results summary"
++echo "  ✓ all_trials.csv - All optimization trials"
++echo "  ✓ oof_predictions.csv - Out-of-fold predictions"
++echo "  ✓ decile_analysis.csv - Performance by decile"
++echo ""
++echo "Stacking Results ($STACK_OUTPUT):"
++echo "  ✓ summary.csv - Model comparison (XGB vs MLP vs Stack)"
++echo "  ✓ oof_predictions.csv - All model predictions"
++echo "  ✓ stacker_logit.json - Stacking coefficients"
++echo "  ✓ deciles_*.csv - Decile analysis for each model"
++
++# Check file sizes
++echo ""
++echo "📊 Output File Sizes:"
++find "$OUTPUT_ROOT" -name "*.csv" -o -name "*.json" | while read -r file; do
++    if [[ -f "$file" ]]; then
++        size=$(du -h "$file" | cut -f1)
++        echo "  $file ($size)"
++    fi
++done
++
++echo ""
++echo "🔗 Weights & Biases:"
++echo "  Project: $WANDB_PROJECT"
++echo "  GBDT Run: ${ALGO^^}_Sweep_${TRIALS}trials_*"
++echo "  Stack Run: Stack_${ALGO^^}+MLP_*"
++echo "  URL: https://wandb.ai/[your-username]/$WANDB_PROJECT"
++
++echo ""
++echo "🚀 Next Steps:"
++echo "  1. Review W&B dashboard for detailed metrics and comparisons"
++echo "  2. Check $GBDT_OUTPUT/best_params.json for optimal hyperparameters"
++echo "  3. Examine $STACK_OUTPUT/summary.csv for model performance comparison"
++echo "  4. Use the stacked model for production deployment"
++echo "  5. Consider ensemble approaches using top-performing configurations"
++
++echo ""
++echo "✅ Risk Model Pipeline completed successfully!"
++echo "=========================================="
+diff --git a/src/io_utils.py b/src/io_utils.py
+new file mode 100644
+index 0000000..24522d6
+--- /dev/null
++++ b/src/io_utils.py
+@@ -0,0 +1,28 @@
++# io_utils.py
++import json, numpy as np, pandas as pd
++from pathlib import Path
++
++def load_xy(data_root: str):
++    X = pd.read_parquet(Path(data_root)/"X_features.parquet")
++    y_df = pd.read_csv(Path(data_root)/"y_label.csv")
++    # first non-id column is the target (your file contains label_union)
++    target_col = [c for c in y_df.columns if c.lower() not in {"id","row_id","user_id"}][0]
++    y = y_df[target_col].astype(int).values
++    return X, y, target_col
++
++def maybe_load_monotone(data_root: str, feature_names):
++    cfg_path = Path(data_root)/"monotone_config.json"
++    if not cfg_path.exists():
++        return None
++    cfg = json.loads(cfg_path.read_text())
++    vec = [int(cfg.get(f, 0)) for f in feature_names]  # 1, -1, 0
++    return vec
++
++def dump_json(obj, path):
++    Path(path).parent.mkdir(parents=True, exist_ok=True)
++    with open(path, "w") as f:
++        f.write(json.dumps(obj, indent=2))
++
++def save_df(df, path):
++    Path(path).parent.mkdir(parents=True, exist_ok=True)
++    df.to_csv(path, index=False)
+diff --git a/src/metrics.py b/src/metrics.py
+new file mode 100644
+index 0000000..e9d2320
+--- /dev/null
++++ b/src/metrics.py
+@@ -0,0 +1,48 @@
++# metrics.py
++import numpy as np, pandas as pd
++from sklearn.metrics import roc_auc_score, average_precision_score
++
++def gini_from_auc(auc: float) -> float:
++    return 2.0 * auc - 1.0
++
++def ks_stat(y_true, y_score):
++    df = pd.DataFrame({"y": y_true, "p": y_score}).sort_values("p")
++    df["cum_pos"] = (df["y"]==1).cumsum() / (df["y"]==1).sum()
++    df["cum_neg"] = (df["y"]==0).cumsum() / (df["y"]==0).sum()
++    return float(np.max(np.abs(df["cum_pos"] - df["cum_neg"])))
++
++def decile_table(y_true, y_score, n_bins=10):
++    df = pd.DataFrame({"y": y_true, "p": y_score})
++    # robust deciling on prob with ties
++    df["decile"] = pd.qcut(df["p"].rank(method="first"), q=n_bins, labels=list(range(n_bins,0,-1)))
++    agg = df.groupby("decile").agg(
++        n=("y","size"),
++        pos=("y","sum"),
++        avg_p=("p","mean")
++    ).reset_index()
++    agg["neg"] = agg["n"] - agg["pos"]
++    agg["pos_rate"] = agg["pos"] / agg["n"]
++    agg["cum_pos"] = agg["pos"].cumsum()
++    agg["cum_neg"] = agg["neg"].cumsum()
++    total_pos, total_neg = agg["pos"].sum(), agg["neg"].sum()
++    agg["cum_pos_capture"] = agg["cum_pos"] / total_pos
++    agg["cum_neg_share"] = agg["cum_neg"] / (total_neg if total_neg>0 else 1.0)
++    # classic lift = pos_rate / overall_rate
++    overall_rate = total_pos / (total_pos + total_neg)
++    agg["lift"] = agg["pos_rate"] / overall_rate
++    return agg
++
++def summarize_all(y_true, y_score, label="oof", n_bins=10):
++    auc = roc_auc_score(y_true, y_score)
++    ap  = average_precision_score(y_true, y_score)
++    gini = gini_from_auc(auc)
++    ks = ks_stat(y_true, y_score)
++    dec = decile_table(y_true, y_score, n_bins=n_bins)
++    summary = {
++        "label": label,
++        "auc": float(auc),
++        "ap":  float(ap),
++        "gini": float(gini),
++        "ks": float(ks)
++    }
++    return summary, dec
+diff --git a/src/train_gbdt_sweep.py b/src/train_gbdt_sweep.py
+new file mode 100644
+index 0000000..9ceef19
+--- /dev/null
++++ b/src/train_gbdt_sweep.py
+@@ -0,0 +1,222 @@
++# train_gbdt_sweep.py
++import os, json, time, math, random, warnings
++import numpy as np, pandas as pd
++from pathlib import Path
++from tqdm import tqdm
++from sklearn.model_selection import StratifiedKFold
++from sklearn.linear_model import LogisticRegression
++from sklearn.preprocessing import StandardScaler
++from sklearn.pipeline import Pipeline
++
++from .metrics import summarize_all, decile_table
++from .io_utils import load_xy, maybe_load_monotone, dump_json, save_df
++
++warnings.filterwarnings("ignore")
++RNG = np.random.default_rng(42)
++
++def try_import_xgb():
++    try:
++        import xgboost as xgb
++        return xgb
++    except Exception:
++        return None
++
++def try_import_lgb():
++    try:
++        import lightgbm as lgb
++        return lgb
++    except Exception:
++        return None
++
++def make_param_sampler(algo, X, y):
++    # class balance (note: your prevalence ~= 0.52, so this is mild)
++    pos = y.sum(); neg = len(y)-pos
++    spw = max(neg/(pos+1e-9), 0.5)  # ~0.92 here
++
++    if algo == "xgb":
++        space = {
++            "eta":        lambda: 10**RNG.uniform(-2.0, -0.7),   # 0.01–0.2
++            "max_depth":  lambda: RNG.integers(3, 9),
++            "min_child_weight": lambda: 10**RNG.uniform(-1, 2),  # 0.1–100
++            "subsample":  lambda: RNG.uniform(0.6, 1.0),
++            "colsample_bytree": lambda: RNG.uniform(0.6, 1.0),
++            "gamma":      lambda: 10**RNG.uniform(-3, 1),        # 0.001–10
++            "reg_alpha":  lambda: 10**RNG.uniform(-4, 0),        # 1e-4–1
++            "reg_lambda": lambda: 10**RNG.uniform(-3, 1),        # 0.001–10
++            "scale_pos_weight": lambda: RNG.choice([1.0, spw, 1.25*spw]),
++            "n_estimators": lambda: RNG.integers(800, 2500)
++        }
++    else:  # lightgbm
++        space = {
++            "learning_rate": lambda: 10**RNG.uniform(-2.0, -0.7),
++            "num_leaves":    lambda: int(2**RNG.uniform(4, 7.5)),  # 16–181
++            "max_depth":     lambda: RNG.integers(-1, 11),
++            "min_child_samples": lambda: int(2**RNG.uniform(3, 8)), # 8–256
++            "subsample":     lambda: RNG.uniform(0.6, 1.0),
++            "colsample_bytree": lambda: RNG.uniform(0.6, 1.0),
++            "reg_alpha":     lambda: 10**RNG.uniform(-4, 0),
++            "reg_lambda":    lambda: 10**RNG.uniform(-3, 1),
++            "n_estimators":  lambda: RNG.integers(800, 2500),
++            "scale_pos_weight": lambda: RNG.choice([1.0, spw, 1.25*spw])
++        }
++    return space
++
++def sample_params(space):
++    return {k: v() for k, v in space.items()}
++
++def run_cv_xgb(X, y, params, monotone_vec=None, seed=42, n_splits=5):
++    import xgboost as xgb
++    skf = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=seed)
++    oof = np.zeros(len(y))
++    feats = X.columns.tolist()
++    fi = np.zeros(len(feats))
++
++    # monotone string "(1,0,-1,...)"
++    mono_str = None
++    if monotone_vec is not None:
++        mono_str = "(" + ",".join(str(int(v)) for v in monotone_vec) + ")"
++
++    for tr_idx, va_idx in skf.split(X, y):
++        Xtr, Xva = X.iloc[tr_idx], X.iloc[va_idx]
++        ytr, yva = y[tr_idx], y[va_idx]
++        model = xgb.XGBClassifier(
++            objective="binary:logistic",
++            eval_metric="auc",
++            tree_method="hist",
++            random_state=seed,
++            early_stopping_rounds=300,
++            **params
++        )
++        if mono_str is not None:
++            model.set_params(monotone_constraints=mono_str)
++        model.fit(Xtr, ytr, eval_set=[(Xva, yva)], verbose=False)
++        p = model.predict_proba(Xva)[:,1]
++        oof[va_idx] = p
++        try:
++            fi += model.feature_importances_
++        except Exception:
++            pass
++    fi /= n_splits
++    return oof, pd.DataFrame({"feature": feats, "importance": fi}).sort_values("importance", ascending=False)
++
++def run_cv_lgb(X, y, params, monotone_vec=None, seed=42, n_splits=5):
++    import lightgbm as lgb
++    skf = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=seed)
++    oof = np.zeros(len(y))
++    feats = X.columns.tolist()
++    fi = np.zeros(len(feats))
++    for tr_idx, va_idx in skf.split(X, y):
++        Xtr, Xva = X.iloc[tr_idx], X.iloc[va_idx]
++        ytr, yva = y[tr_idx], y[va_idx]
++        model = lgb.LGBMClassifier(
++            objective="binary",
++            random_state=seed,
++            **params
++        )
++        if monotone_vec is not None:
++            model.set_params(monotone_constraints=monotone_vec)
++        model.fit(Xtr, ytr, eval_set=[(Xva, yva)], eval_metric="auc",
++                  callbacks=[lgb.early_stopping(stopping_rounds=300, verbose=False)])
++        p = model.predict_proba(Xva)[:,1]
++        oof[va_idx] = p
++        try:
++            fi += model.booster_.feature_importance(importance_type="gain")
++        except Exception:
++            pass
++    fi /= n_splits
++    return oof, pd.DataFrame({"feature": feats, "importance": fi}).sort_values("importance", ascending=False)
++
++def maybe_wandb(args):
++    if not args.wandb:
++        return None
++    try:
++        import wandb
++        # Use specific entity and project for your CMU workspace
++        wandb.init(
++            entity=args.wandb_entity,
++            project=args.wandb_project or "Risk_Score", 
++            config=vars(args)
++        )
++        return wandb
++    except Exception as e:
++        print(f"[wandb] disabled ({e})")
++        return None
++
++def main():
++    import argparse
++    ap = argparse.ArgumentParser()
++    ap.add_argument("--data-root", default="data")
++    ap.add_argument("--out-dir", default="model_outputs/gbdt_sweep")
++    ap.add_argument("--algo", choices=["xgb","lgb"], default="xgb")
++    ap.add_argument("--trials", type=int, default=60)
++    ap.add_argument("--seed", type=int, default=42)
++    ap.add_argument("--n-splits", type=int, default=5)
++    ap.add_argument("--wandb", action="store_true")
++    ap.add_argument("--wandb-project", default=None)
++    ap.add_argument("--wandb-entity", default="ved100-carnegie-mellon-university", 
++                    help="W&B entity (organization/username)")
++    ap.add_argument("--use-monotone", action="store_true",
++                    help="loads data/monotone_config.json if present")
++    args = ap.parse_args()
++
++    Path(args.out_dir).mkdir(parents=True, exist_ok=True)
++    X, y, label_name = load_xy(args.data_root)
++    print(f"Loaded X={X.shape}, positives={int(y.sum())}/{len(y)}  (target={label_name})")
++
++    # select backend
++    use_xgb = args.algo == "xgb" and (try_import_xgb() is not None)
++    use_lgb = args.algo == "lgb" and (try_import_lgb() is not None)
++    if not (use_xgb or use_lgb):
++        raise RuntimeError("Neither XGBoost nor LightGBM available. Please install one.")
++
++    wandb = maybe_wandb(args)
++    param_space = make_param_sampler("xgb" if use_xgb else "lgb", X, y)
++    monotone_vec = maybe_load_monotone(args.data_root, X.columns) if args.use_monotone else None
++
++    trial_rows, best = [], {"auc": -1}
++    for t in range(1, args.trials+1):
++        params = sample_params(param_space)
++        if use_xgb:
++            oof, fi = run_cv_xgb(X, y, params, monotone_vec, seed=args.seed, n_splits=args.n_splits)
++        else:
++            oof, fi = run_cv_lgb(X, y, params, monotone_vec, seed=args.seed, n_splits=args.n_splits)
++
++        smry, dec = summarize_all(y, oof, label="oof")
++        row = {"trial": t, **params, **smry}
++        trial_rows.append(row)
++
++        if smry["auc"] > best["auc"]:
++            best = {"trial": t, "params": params, "auc": smry["auc"], "ap": smry["ap"]}
++            # save running best artifacts
++            fi.to_csv(Path(args.out_dir)/"feature_importance_running_best.csv", index=False)
++            dec.to_csv(Path(args.out_dir)/"deciles_running_best.csv", index=False)
++            pd.DataFrame({"oof_pred": oof, "y": y}).to_csv(Path(args.out_dir)/"oof_running_best.csv", index=False)
++
++        if wandb:
++            wandb.log({**smry, "trial": t})
++
++        print(f"[{t:03d}/{args.trials}] AUC={smry['auc']:.4f}  AP={smry['ap']:.4f}")
++
++    trials_df = pd.DataFrame(trial_rows).sort_values("auc", ascending=False)
++    trials_df.to_csv(Path(args.out_dir)/"trials_summary.csv", index=False)
++    dump_json(best, Path(args.out_dir)/"best_params.json")
++
++    # Platt calibration on best OOF
++    oof_df = pd.read_csv(Path(args.out_dir)/"oof_running_best.csv")
++    clf_cal = LogisticRegression(max_iter=1000).fit(oof_df[["oof_pred"]].values, oof_df["y"].values)
++    oof_cal = clf_cal.predict_proba(oof_df[["oof_pred"]].values)[:,1]
++    cal_smry, cal_dec = summarize_all(oof_df["y"].values, oof_cal, label="oof_cal")
++    cal_dec.to_csv(Path(args.out_dir)/"deciles_running_best_calibrated.csv", index=False)
++    dump_json({"calibration_auc": cal_smry["auc"], "calibration_ap": cal_smry["ap"]},
++              Path(args.out_dir)/"calibration_summary.json")
++
++    if wandb:
++        wandb.log({"oof_cal_auc": cal_smry["auc"], "oof_cal_ap": cal_smry["ap"]})
++        wandb.finish()
++
++    print("\n== DONE ==")
++    print(f"Best trial #{best['trial']}  AUC={best['auc']:.4f}, AP={best['ap']:.4f}")
++    print(f"Artifacts → {args.out_dir}")
++
++if __name__ == "__main__":
++    main()
+diff --git a/src/train_mlp_stack.py b/src/train_mlp_stack.py
+new file mode 100644
+index 0000000..02c4bdf
+--- /dev/null
++++ b/src/train_mlp_stack.py
+@@ -0,0 +1,99 @@
++# train_mlp_stack.py
++import json, numpy as np, pandas as pd
++from pathlib import Path
++from tqdm import tqdm
++from sklearn.model_selection import StratifiedKFold
++from sklearn.neural_network import MLPClassifier
++from sklearn.pipeline import Pipeline
++from sklearn.preprocessing import StandardScaler
++from sklearn.linear_model import LogisticRegression
++from sklearn.metrics import roc_auc_score, average_precision_score
++
++from .metrics import summarize_all
++from .io_utils import load_xy, dump_json
++
++def cv_oof(model, X, y, n_splits=5, seed=42):
++    skf = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=seed)
++    oof = np.zeros(len(y))
++    for tr, va in skf.split(X, y):
++        m = model()
++        m.fit(X.iloc[tr], y[tr])
++        p = m.predict_proba(X.iloc[va])[:,1]
++        oof[va] = p
++    return oof
++
++def make_mlp():
++    return Pipeline([
++        ("scaler", StandardScaler(with_mean=True, with_std=True)),
++        ("clf", MLPClassifier(
++            hidden_layer_sizes=(128,64),
++            activation="relu",
++            alpha=1e-4, batch_size=256,
++            learning_rate_init=1e-3,
++            max_iter=80, random_state=42, verbose=False))
++    ])
++
++def make_xgb(best_params=None):
++    import xgboost as xgb
++    params = dict(
++        objective="binary:logistic",
++        eval_metric="auc",
++        tree_method="hist",
++        n_estimators=1200,
++        eta=0.05, max_depth=6, subsample=0.8, colsample_bytree=0.8,
++        reg_alpha=0.1, reg_lambda=0.5,
++        random_state=42, early_stopping_rounds=200
++    )
++    if best_params:
++        params.update(best_params)
++        params.pop("scale_pos_weight", None)  # we’ll re-fit without early-stop meta params
++    def _factory():
++        return xgb.XGBClassifier(**params)
++    return _factory
++
++def main():
++    import argparse
++    ap = argparse.ArgumentParser()
++    ap.add_argument("--data-root", default="data")
++    ap.add_argument("--out-dir", default="model_outputs/stack")
++    ap.add_argument("--best-xgb-params", default="model_outputs/gbdt_sweep/best_params.json")
++    ap.add_argument("--n-splits", type=int, default=5)
++    ap.add_argument("--seed", type=int, default=42)
++    args = ap.parse_args()
++
++    Path(args.out_dir).mkdir(parents=True, exist_ok=True)
++    X, y, target = load_xy(args.data_root)
++
++    best_params = None
++    p = Path(args.best_xgb_params)
++    if p.exists():
++        best_params = json.loads(p.read_text()).get("params", None)
++
++    # 1) OOF from XGB and MLP
++    oof_xgb = cv_oof(make_xgb(best_params), X, y, n_splits=args.n_splits, seed=args.seed)
++    oof_mlp = cv_oof(make_mlp,             X, y, n_splits=args.n_splits, seed=args.seed)
++
++    # 2) Calibrated stacker (Platt)
++    Z = np.column_stack([oof_xgb, oof_mlp])
++    cal = LogisticRegression(max_iter=1000).fit(Z, y)
++    oof_stack = cal.predict_proba(Z)[:,1]
++
++    # 3) Metrics & artifacts
++    rows = []
++    for name, vec in [("xgb", oof_xgb), ("mlp", oof_mlp), ("stack", oof_stack)]:
++        smry, dec = summarize_all(y, vec, label=name)
++        dec.to_csv(Path(args.out_dir)/f"deciles_{name}.csv", index=False)
++        rows.append({"model": name, **smry})
++
++    pd.DataFrame({"oof_xgb": oof_xgb, "oof_mlp": oof_mlp, "oof_stack": oof_stack, "y": y})\
++      .to_csv(Path(args.out_dir)/"oof_predictions.csv", index=False)
++
++    pd.DataFrame(rows).to_csv(Path(args.out_dir)/"summary.csv", index=False)
++    dump_json({"coef": cal.coef_.ravel().tolist(), "intercept": float(cal.intercept_[0])},
++              Path(args.out_dir)/"stacker_logit.json")
++
++    print(pd.DataFrame(rows).to_string(index=False))
++    print(f"\nArtifacts → {args.out_dir}")
++
++if __name__ == "__main__":
++    main()
+diff --git a/submit_risk_sweep_job.sh b/submit_risk_sweep_job.sh
+new file mode 100755
+index 0000000..2c94ca9
+--- /dev/null
++++ b/submit_risk_sweep_job.sh
+@@ -0,0 +1,128 @@
++#!/bin/bash
++#SBATCH --job-name=risk_sweep
++#SBATCH --partition=cpu
++#SBATCH --qos=cpu_qos
++#SBATCH --nodes=1
++#SBATCH --ntasks=1
++#SBATCH --cpus-per-task=16
++#SBATCH --mem=64G
++#SBATCH --time=12:00:00
++#SBATCH --output=/home/vhsingh/Parshvi_project/artifacts/logs/risk_sweep_%j.out
++#SBATCH --error=/home/vhsingh/Parshvi_project/artifacts/logs/risk_sweep_%j.err
++#SBATCH --mail-type=BEGIN,END,FAIL
++#SBATCH --mail-user=vhsingh@andrew.cmu.edu
++
++set -euo pipefail
++
++echo "=== Risk Model Hyperparameter Sweep Job ==="
++echo "Job ID: $SLURM_JOB_ID"
++echo "Node: $SLURM_JOB_NODELIST"
++echo "Start time: $(date)"
++echo "Working directory: $(pwd)"
++echo "CPUs allocated: $SLURM_CPUS_PER_TASK"
++echo "Memory allocated: $SLURM_MEM_PER_NODE MB"
++
++# Create logs directory
++mkdir -p /home/vhsingh/Parshvi_project/artifacts/logs
++
++# Activate conda environment
++source ~/miniconda3/etc/profile.d/conda.sh
++conda activate Research
++
++echo "✓ Using Python: $(which python)"
++echo "✓ Python version: $(python --version)"
++
++# Set threading for performance
++export OMP_NUM_THREADS=${SLURM_CPUS_PER_TASK:-16}
++export MKL_NUM_THREADS=${SLURM_CPUS_PER_TASK:-16}
++export NUMEXPR_NUM_THREADS=${SLURM_CPUS_PER_TASK:-16}
++
++# Change to project directory
++cd /home/vhsingh/Parshvi_project
++
++# Algorithm selection (default to XGBoost, can be overridden)
++ALGO="${1:-xgb}"
++TRIALS="${2:-60}"
++
++echo "=== Configuration ==="
++echo "Algorithm: ${ALGO^^}"
++echo "Trials: $TRIALS"
++echo "Expected runtime: 8-12 hours"
++
++# Install additional packages if needed
++echo "=== Checking dependencies ==="
++pip install --user -q wandb
++
++echo "=== Starting Risk Model Sweep ==="
++bash scripts/run_risk_model_sweep.sh "$ALGO" "$TRIALS"
++
++sweep_exit_code=$?
++
++echo ""
++echo "=== Job Completion Summary ==="
++echo "Exit Code: $sweep_exit_code"
++echo "End Time: $(date)"
++echo "Job ID: $SLURM_JOB_ID"
++
++if [[ $sweep_exit_code -eq 0 ]]; then
++    echo "✅ Risk model sweep completed successfully!"
++    echo ""
++    echo "📊 Results Summary:"
++    
++    # Display key results if available
++    if [[ -f "model_outputs/gbdt_sweep_${ALGO}/best_params.json" ]]; then
++        echo "GBDT Optimization Results:"
++        python -c "
++import json
++try:
++    with open('model_outputs/gbdt_sweep_${ALGO}/best_params.json', 'r') as f:
++        results = json.load(f)
++    print(f'  Best Trial: #{results[\"trial\"]}')
++    print(f'  Best AUC: {results[\"auc\"]:.6f}')
++    print(f'  Best AP: {results[\"ap\"]:.6f}')
++except Exception as e:
++    print(f'  Could not parse results: {e}')
++"
++    fi
++    
++    if [[ -f "model_outputs/stack_${ALGO}/summary.csv" ]]; then
++        echo ""
++        echo "Stacking Results:"
++        python -c "
++import pandas as pd
++try:
++    df = pd.read_csv('model_outputs/stack_${ALGO}/summary.csv')
++    for _, row in df.iterrows():
++        print(f'  {row[\"model\"].upper()}: AUC={row[\"auc\"]:.6f}, AP={row[\"ap\"]:.6f}')
++except Exception as e:
++    print(f'  Could not parse stacking results: {e}')
++"
++    fi
++    
++    echo ""
++    echo "📁 Output Locations:"
++    echo "  GBDT Results: model_outputs/gbdt_sweep_${ALGO}/"
++    echo "  Stacking Results: model_outputs/stack_${ALGO}/"
++    echo "  W&B Project: Risk Score"
++    
++else
++    echo "❌ Risk model sweep failed with exit code: $sweep_exit_code"
++    echo ""
++    echo "🔍 Troubleshooting:"
++    echo "  1. Check the error log: artifacts/logs/risk_sweep_${SLURM_JOB_ID}.err"
++    echo "  2. Verify input data files exist in data/processed/"
++    echo "  3. Check Python environment and package versions"
++    echo "  4. Ensure sufficient memory and time allocation"
++fi
++
++echo "=== Resource Usage ==="
++if command -v free &> /dev/null; then
++    echo "Memory Usage:"
++    free -h
++fi
++
++echo ""
++echo "📋 Detailed log: artifacts/logs/risk_sweep_${SLURM_JOB_ID}.out"
++echo "=== Job Complete ==="
++
++exit $sweep_exit_code

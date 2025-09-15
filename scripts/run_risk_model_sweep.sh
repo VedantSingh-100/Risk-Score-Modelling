@@ -9,9 +9,9 @@ set -euo pipefail
 # =============================================================================
 
 # Weights & Biases Configuration
-export WANDB_PROJECT="Risk Score"
 export WANDB_API_KEY="3ff6a13421fb5921502235dde3f9a4700f33b5b8"
 export WANDB_MODE="online"
+WANDB_PROJECT="Risk Score"
 
 # Pipeline Configuration
 ALGO="${1:-xgb}"  # xgb or lgb
@@ -74,7 +74,7 @@ echo "- Working Directory: $(pwd)"
 echo "📦 Checking required packages..."
 python -c "
 import sys
-required = ['pandas', 'numpy', 'scikit-learn', 'optuna', 'tqdm']
+required = ['pandas', 'numpy', 'scikit-learn', 'tqdm']
 if '$ALGO' == 'xgb':
     required.append('xgboost')
 else:
@@ -131,7 +131,8 @@ python -m src.train_gbdt_sweep \
     --trials "$TRIALS" \
     --n-splits "$N_SPLITS" \
     --seed "$SEED" \
-    --wandb
+    --wandb \
+    --wandb-project "$WANDB_PROJECT"
 
 gbdt_exit_code=$?
 end_time=$(date +%s)
@@ -149,12 +150,9 @@ if [[ $gbdt_exit_code -eq 0 ]]; then
 import json
 with open('$GBDT_OUTPUT/best_params.json', 'r') as f:
     results = json.load(f)
-print(f'Best CV AUC: {results[\"best_score\"]:.6f}')
-print(f'Algorithm: {results[\"algorithm\"].upper()}')
-print(f'Trials completed: {results[\"n_trials\"]}')
-if 'final_oof_auc' in results:
-    print(f'Final OOF AUC: {results[\"final_oof_auc\"]:.6f}')
-    print(f'Final OOF AP: {results[\"final_oof_ap\"]:.6f}')
+print(f'Best Trial: #{results[\"trial\"]}')
+print(f'Best AUC: {results[\"auc\"]:.6f}')
+print(f'Best AP: {results[\"ap\"]:.6f}')
 "
     fi
 else

@@ -1,0 +1,132 @@
+_wandb:
+    value:
+        cli_version: 0.21.1
+        e:
+            pbvi2ox1ixhwxntf30hs110mkpfev43c:
+                args:
+                    - --data-root
+                    - /home/vhsingh/Parshvi_project/data/processed
+                    - --out-dir
+                    - /home/vhsingh/Parshvi_project/model_outputs/gbdt_sweep_xgb_20250914_033507
+                    - --algo
+                    - xgb
+                    - --trials
+                    - "120"
+                    - --n-splits
+                    - "5"
+                    - --seed
+                    - "42"
+                    - --use-monotone
+                    - --wandb
+                    - --wandb-project
+                    - Risk_Score
+                    - --wandb-entity
+                    - ved100-carnegie-mellon-university
+                cpu_count: 128
+                cpu_count_logical: 128
+                cudaVersion: "12.9"
+                disk:
+                    /:
+                        total: "236663791616"
+                        used: "92821590016"
+                email: vhsingh@andrew.cmu.edu
+                executable: /home/vhsingh/miniconda3/envs/Research/bin/python
+                git:
+                    commit: 4fb83a8a9fbb82b4843fe30843249149a4aa3c1d
+                    remote: https://github.com/VedantSingh-100/Risk-Score-Modelling.git
+                gpu: NVIDIA RTX A6000
+                gpu_count: 1
+                gpu_nvidia:
+                    - architecture: Ampere
+                      cudaCores: 10752
+                      memoryTotal: "51527024640"
+                      name: NVIDIA RTX A6000
+                      uuid: GPU-60db7812-231c-b6ab-c168-d1e06918cd59
+                host: babel-0-19
+                memory:
+                    total: "1081484066816"
+                os: Linux-5.14.0-503.40.1.el9_5.x86_64-x86_64-with-glibc2.34
+                program: -m src.train_gbdt_sweep
+                python: CPython 3.12.9
+                root: /home/vhsingh/Parshvi_project
+                slurm:
+                    cluster_name: babel
+                    conf: /var/spool/slurmd/conf-cache/slurm.conf
+                    cpus_on_node: "16"
+                    cpus_per_task: "16"
+                    gpus_on_node: "1"
+                    gtids: "0"
+                    job_account: atalwalk
+                    job_cpus_per_node: "16"
+                    job_end_time: "1757892902"
+                    job_gid: "2700465"
+                    job_gpus: "0"
+                    job_id: "5458990"
+                    job_name: risk_overnight
+                    job_nodelist: babel-0-19
+                    job_num_nodes: "1"
+                    job_partition: general
+                    job_qos: normal
+                    job_start_time: "1757835302"
+                    job_uid: "2700465"
+                    job_user: vhsingh
+                    jobid: "5458990"
+                    localid: "0"
+                    mem_per_node: "65536"
+                    nnodes: "1"
+                    nodeid: "0"
+                    nodelist: babel-0-19
+                    nprocs: "1"
+                    ntasks: "1"
+                    prio_process: "0"
+                    procid: "0"
+                    script_context: prolog_task
+                    submit_dir: /home/vhsingh/Parshvi_project
+                    submit_host: babel-5-11
+                    task_pid: "3696143"
+                    tasks_per_node: "1"
+                    topology_addr: babel-0-19
+                    topology_addr_pattern: node
+                    tres_per_task: cpu=16
+                startedAt: "2025-09-14T07:35:09.918460Z"
+                writerId: pbvi2ox1ixhwxntf30hs110mkpfev43c
+        m: []
+        python_version: 3.12.9
+        t:
+            "1":
+                - 5
+                - 6
+                - 53
+            "2":
+                - 5
+                - 6
+                - 53
+            "3":
+                - 2
+                - 16
+            "4": 3.12.9
+            "5": 0.21.1
+            "8":
+                - 2
+            "12": 0.21.1
+            "13": linux-x86_64
+algo:
+    value: xgb
+data_root:
+    value: /home/vhsingh/Parshvi_project/data/processed
+n_splits:
+    value: 5
+out_dir:
+    value: /home/vhsingh/Parshvi_project/model_outputs/gbdt_sweep_xgb_20250914_033507
+seed:
+    value: 42
+trials:
+    value: 120
+use_monotone:
+    value: true
+wandb:
+    value: true
+wandb_entity:
+    value: ved100-carnegie-mellon-university
+wandb_project:
+    value: Risk_Score

@@ -27,3 +27,4 @@ echo "Start: $(date)"
 bash scripts/run_risk_model_sweep.sh "$ALGO" "$TRIALS" "$N_SPLITS" "$SEED"
 
 echo "✅ Quick sweep completed!"
+

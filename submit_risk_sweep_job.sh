@@ -51,7 +51,7 @@ echo "Expected runtime: 8-12 hours"
 
 # Install additional packages if needed
 echo "=== Checking dependencies ==="
-pip install --user -q optuna wandb
+pip install --user -q wandb
 
 echo "=== Starting Risk Model Sweep ==="
 bash scripts/run_risk_model_sweep.sh "$ALGO" "$TRIALS"
@@ -70,16 +70,16 @@ if [[ $sweep_exit_code -eq 0 ]]; then
     echo "📊 Results Summary:"
     
     # Display key results if available
-    if [[ -f "model_outputs/gbdt_sweep_${ALGO}/final_results.json" ]]; then
+    if [[ -f "model_outputs/gbdt_sweep_${ALGO}/best_params.json" ]]; then
         echo "GBDT Optimization Results:"
         python -c "
 import json
 try:
-    with open('model_outputs/gbdt_sweep_${ALGO}/final_results.json', 'r') as f:
+    with open('model_outputs/gbdt_sweep_${ALGO}/best_params.json', 'r') as f:
         results = json.load(f)
-    print(f'  Best CV AUC: {results[\"best_score\"]:.6f}')
-    print(f'  Final OOF AUC: {results.get(\"final_oof_auc\", \"N/A\")}')
-    print(f'  Final OOF AP: {results.get(\"final_oof_ap\", \"N/A\")}')
+    print(f'  Best Trial: #{results[\"trial\"]}')
+    print(f'  Best AUC: {results[\"auc\"]:.6f}')
+    print(f'  Best AP: {results[\"ap\"]:.6f}')
 except Exception as e:
     print(f'  Could not parse results: {e}')
 "

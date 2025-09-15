@@ -19,3 +19,4 @@ python -m src.models.train_baselines \
 echo "=== Baseline Training Complete ==="
 echo "End time: $(date)"
 echo "Results saved to: artifacts/reports/baselines/"
+

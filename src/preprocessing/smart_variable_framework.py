@@ -44,11 +44,123 @@ warnings.filterwarnings("ignore")
 # CONFIGURATION
 # =============================================
 
+# ==== [NEW HELPERS FOR WINDOWS, GUARDS, PRUNING] ==========================
+import re
+from datetime import datetime
+from sklearn.metrics import roc_auc_score
+
+WINDOW_PATTERNS = {
+    "1m": re.compile(r"\b(last\s*1\s*month|1m|30d)\b", re.I),
+    "3m": re.compile(r"\b(last\s*3\s*month|3m|90d)\b", re.I),
+    "6m": re.compile(r"\b(last\s*6\s*month|6m|180d)\b", re.I),
+    "12m": re.compile(r"\b(last\s*12\s*month|12m|360d|1\s*year)\b", re.I),
+    "lt": re.compile(r"\b(life\s*time|lifetime|ever|since\s*inception)\b", re.I),
+}
+
+OUTCOME_PAT = re.compile(
+    r"(write[\s-]?off|charge[\s-]?off|npa|default|dpd|over[-\s]?limit|"
+    r"over\s?due|overdue|past.?due|arrear|min[_\s-]?due|mindue|miss(?:ed|ing)?|"
+    r"declin\w*|reject\w*|insufficient|penalt\w*|bounc\w*|ecs|nach|negative\w*)",
+    re.I
+)
+
+ID_PAT = re.compile(r"(?:^|_)(id|uuid|pan|aadhaar|account|application|lead|mobile|email)(?:_|$)", re.I)
+
+def infer_window(name: str, desc: str) -> str:
+    s = f"{name} {desc}".lower()
+    for tag, pat in WINDOW_PATTERNS.items():
+        if pat.search(s):
+            return tag
+    return "unknown"
+
+def is_outcome_like(name: str, desc: str) -> bool:
+    s = f"{name} {desc}".lower()
+    return bool(OUTCOME_PAT.search(s))
+
+def variable_family(varname: str) -> str:
+    """Group variables by a coarse 'family' key to guard whole families."""
+    v = str(varname).lower()
+    m = re.match(r"var(\d{3})", v)  # var201xxx -> var201
+    if m:
+        return f"var{m.group(1)}"
+    # fallback: prefix until first underscore
+    return v.split("_")[0]
+
+def id_like_columns(cols):
+    return {c for c in cols if ID_PAT.search(str(c))}
+
+def near_unique_columns(df: pd.DataFrame, thresh: float = 0.98):
+    out = set()
+    n = len(df)
+    for c in df.columns:
+        try:
+            u = df[c].nunique(dropna=False)
+            if u >= thresh * n:
+                out.add(c)
+        except Exception:
+            pass
+    return out
+
+def too_predictive_guard(dfX: pd.DataFrame, y: pd.Series, max_auc: float = 0.88, sample: int = 12000, seed: int = 42):
+    """Smell test: any single raw feature with >max_auc AUC is suspicious."""
+    rng = np.random.default_rng(seed)
+    n = len(y)
+    idx = rng.choice(n, size=min(sample, n), replace=False)
+    flags = set()
+    yv = y.iloc[idx] if hasattr(y, "iloc") else y[idx]
+    for c in dfX.columns:
+        try:
+            xv = pd.to_numeric(dfX[c], errors="coerce").fillna(0).values
+            auc = roc_auc_score(yv, xv[idx]) if hasattr(xv, "__getitem__") else roc_auc_score(yv, xv)
+            if auc > max_auc or auc < (1 - max_auc):
+                flags.add(c)
+        except Exception:
+            continue
+    return flags
+
+def prune_correlated(X: pd.DataFrame, corr_thr: float = 0.95, keep_priority: pd.Series | None = None):
+    """
+    Drop one feature from each highly correlated pair (> corr_thr).
+    If keep_priority is provided (higher is more important), we keep the higher-priority feature.
+    """
+    if X.shape[1] <= 1:
+        return X.copy(), []
+
+    corr = X.corr().abs()
+    upper = corr.where(np.triu(np.ones(corr.shape), k=1).astype(bool))
+
+    to_drop = set()
+    for col in upper.columns:
+        high = upper.index[upper[col] > corr_thr].tolist()
+        for h in high:
+            if h in to_drop or col in to_drop:
+                continue
+            if keep_priority is not None:
+                ka = float(keep_priority.get(col, 0.0))
+                kb = float(keep_priority.get(h, 0.0))
+                drop = col if ka < kb else h
+            else:
+                # default: drop the later column alphabetically to be deterministic
+                drop = max(col, h)
+            to_drop.add(drop)
+
+    kept = [c for c in X.columns if c not in to_drop]
+    return X[kept].copy(), sorted(list(to_drop))
+
+def time_safe_feature_mask(feature_names: list[str], descriptions: dict[str, str], forbidden_windows: set[str]):
+    """Mask out features whose window collides with forbidden windows (e.g., {'lt'} to remove lifetime features)."""
+    mask_keep = []
+    for f in feature_names:
+        w = infer_window(f, descriptions.get(f, ""))
+        mask_keep.append(w not in forbidden_windows)
+    return pd.Series(mask_keep, index=feature_names)
+# ========================================================================
+
 @dataclass
 class FrameworkConfig:
     # File paths
-    raw_data_path: str = "50k_users_merged_data_userfile_updated_shopping.csv"
-    dictionary_path: str = "Internal_Algo360VariableDictionary_WithExplanation.xlsx"
+    raw_data_path: str = "/home/vhsingh/Parshvi_project/data/raw/50k_users_merged_data_userfile_updated_shopping.csv"
+    dictionary_path: str = "/home/vhsingh/Parshvi_project/data/raw/Internal_Algo360VariableDictionary_WithExplanation.xlsx"
     variable_catalog_path: str = "variable_catalog.csv"
 
     # Sampling
@@ -224,10 +336,18 @@ class LabelIdentifier:
                     )
                 })
 
-        result_df = pd.DataFrame(negative_matches).sort_values(
-            ['recommended_for_label', 'priority_score', 'pattern_count'],
-            ascending=[False, False, False]
-        )
+        if negative_matches:
+            result_df = pd.DataFrame(negative_matches).sort_values(
+                ['recommended_for_label', 'priority_score', 'pattern_count'],
+                ascending=[False, False, False]
+            )
+        else:
+            # Create empty DataFrame with expected columns
+            result_df = pd.DataFrame(columns=[
+                'variable', 'description', 'matched_patterns', 'pattern_count',
+                'is_binary', 'positive_rate', 'positive_count', 'missing_pct',
+                'unique_count', 'priority_score', 'recommended_for_label'
+            ])
 
         print(f"   Found {len(result_df)} variables matching negative patterns")
         if len(result_df) > 0:
@@ -264,6 +384,8 @@ class LabelIdentifier:
             pos_rate = float(series.mean()) if is_binary and len(series) > 0 else np.nan
 
             outcome_info = self.score_variable_as_outcome(col, desc)
+            window_tag = infer_window(col, desc)
+            lifetime_flag = (window_tag == "lt")
 
             quality_score = 1.0
             if missing_pct > 0.8:
@@ -276,6 +398,8 @@ class LabelIdentifier:
             candidates.append({
                 'variable': col,
                 'description': desc[:200],
+                'window': window_tag,
+                'is_lifetime_window': lifetime_flag,
                 'outcome_score': outcome_info['outcome_score'],
                 'outcome_type': outcome_info['outcome_type'],
                 'matching_keywords': '; '.join(outcome_info['matching_keywords']),
@@ -299,6 +423,7 @@ class LabelIdentifier:
             ascending=[False, False, False]
         )
         return result_df
+
 
 # =============================================
 # COMPOSITE LABEL BUILDER
@@ -443,27 +568,41 @@ class CompositeLabelBuilder:
                 shares.append((c, float(ld[c][pos].mean())))
             return sorted(shares, key=lambda x: x[1], reverse=True)
 
-        # Dominance prune (NON-FATAL)
-        union_now = label_union.copy()
+        # Dominance prune (NON-FATAL) with safety
+        def compute_union(ld): return (ld.sum(axis=1) > 0).astype(int)
+        union_now = compute_union(label_data)
+
+        def quick_prev(ld):  # simple proxy; we keep prevalence stable within a tiny tolerance
+            u = compute_union(ld)
+            return float(u.mean())
+
+        best_prev = float(union_now.mean())
+        best_ld = label_data.copy(); best_meta = meta.copy()
         pruned = []
         while True:
             contrib = contribution(label_data, union_now)
             dom = [c for c, s in contrib if s >= self.config.dominance_cutoff]
             if not dom:
                 break
-            for c in dom:
-                pruned.append(c)
-                label_data = label_data.drop(columns=[c])
-                meta.pop(c, None)
-            if label_data.shape[1] == 0:
-                print("   ⚠️ Dominance prune would remove all sources; skipping dominance prune for this config.")
-                label_data = _label_data_backup
-                meta = _meta_backup
+            trial = label_data.drop(columns=dom)
+            if trial.shape[1] == 0:
                 break
-            union_now = compute_union(label_data)
+            new_prev = quick_prev(trial)
+            # only accept prune if prevalence doesn't drop materially
+            if new_prev >= best_prev - 0.002:
+                for c in dom:
+                    pruned.append(c)
+                    meta.pop(c, None)
+                label_data = trial
+                union_now = compute_union(label_data)
+                best_prev = new_prev
+            else:
+                # stop pruning if it starts harming union coverage
+                break
 
         if pruned:
             print(f"   🪓 Dominance prune removed {len(pruned)} source(s) with share≥{self.config.dominance_cutoff}")
+
 
         # Recompute variants from the pruned (or restored) set
         severe_cols = [c for c in label_data.columns if meta[c]['weight'] >= sev_thr]
@@ -726,7 +865,19 @@ class SmartFeatureSelector:
             if len(X_processed.columns) == 0:
                 continue
 
-            feature_scores = self._multi_method_selection(X_processed, y)
+            try:
+                var_series = X_processed.var(numeric_only=True)
+                X_processed_pruned, dropped_local = prune_correlated(
+                    X_processed, corr_thr=self.config.max_correlation_threshold,
+                    keep_priority=var_series
+                )
+                if len(dropped_local) > 0:
+                    print(f"   [corr-prune] Dropped {len(dropped_local)} encoded features for label={label_col}")
+                X_use = X_processed_pruned
+            except Exception:
+                X_use = X_processed
+
+            feature_scores = self._multi_method_selection(X_use, y)
             results[label_col] = feature_scores
 
         return results
@@ -785,13 +936,31 @@ class SmartFeatureSelector:
 
 def build_leakage_guard(header_cols: List[str], descriptions: Dict[str, str],
                         label_sources: List[str], outcome_guard_terms: Tuple[str, ...]) -> set:
+    """
+    Build a guard set with:
+      1) the explicit label sources
+      2) any column whose text matches outcome terms
+      3) full 'families' of label sources (e.g., var201xxx -> all var201***)
+      4) ID-like & near-unique columns (added later once df is available)
+    """
     pat = re.compile("|".join(outcome_guard_terms), re.IGNORECASE)
     guard = set(label_sources)
+
+    # outcome-like by text
     for c in header_cols:
         txt = (c + " " + descriptions.get(c, "")).lower()
-        if pat.search(txt):
+        if pat.search(txt) or is_outcome_like(c, descriptions.get(c, "")):
             guard.add(c)
+
+    # guard whole families of label sources
+    label_fams = {variable_family(c) for c in label_sources}
+    for c in header_cols:
+        fam = variable_family(c)
+        if fam in label_fams:
+            guard.add(c)
+
     return guard
+
 
 def jaccard_series(a: pd.Series, b: pd.Series) -> float:
     A = a.astype(bool).values; B = b.astype(bool).values
@@ -878,8 +1047,14 @@ class SmartVariableFramework:
         print("STEP 1A: NEGATIVE PATTERN VARIABLE DISCOVERY")
         print("="*50)
         negative_pattern_vars = self.label_identifier.find_negative_pattern_variables(df, descriptions)
-        negative_pattern_vars.to_csv("negative_pattern_variables.csv", index=False)
-        print(f"💾 Saved negative pattern analysis to negative_pattern_variables.csv")
+        
+        # Create interim directory for outputs
+        import os
+        interim_dir = "/home/vhsingh/Parshvi_project/data/interim"
+        os.makedirs(interim_dir, exist_ok=True)
+        
+        negative_pattern_vars.to_csv(f"{interim_dir}/negative_pattern_variables.csv", index=False)
+        print(f"💾 Saved negative pattern analysis to {interim_dir}/negative_pattern_variables.csv")
 
         high_priority_negatives = negative_pattern_vars[negative_pattern_vars['recommended_for_label']]
         print(f"📊 Found {len(high_priority_negatives)} high-priority negative pattern variables")
@@ -889,8 +1064,8 @@ class SmartVariableFramework:
         print("STEP 1B: COMPREHENSIVE LABEL IDENTIFICATION")
         print("="*50)
         label_candidates = self.label_identifier.analyze_candidates(df, descriptions)
-        label_candidates.to_csv("smart_label_candidates.csv", index=False)
-        print(f"💾 Saved general label analysis to smart_label_candidates.csv")
+        label_candidates.to_csv(f"{interim_dir}/smart_label_candidates.csv", index=False)
+        print(f"💾 Saved general label analysis to {interim_dir}/smart_label_candidates.csv")
 
         eligible_labels = label_candidates[label_candidates['eligible_for_label']]
         print(f"📊 Found {len(eligible_labels)} eligible label variables")
@@ -929,7 +1104,7 @@ class SmartVariableFramework:
                     share = float(b[pos_mask].mean()) if pos_mask.any() else 0.0
                     contrib_rows.append((ev, share, descriptions.get(ev, "")[:120]))
             contrib_df = pd.DataFrame(contrib_rows, columns=["event","share_among_positives","description"]).sort_values("share_among_positives", ascending=False)
-            contrib_df.to_csv("event_contribution_summary.csv", index=False)
+            contrib_df.to_csv(f"{interim_dir}/event_contribution_summary.csv", index=False)
 
             # Overlap matrix
             jvars = [ev for ev in label_sources if ev in df.columns]
@@ -939,22 +1114,22 @@ class SmartVariableFramework:
                 for j in range(i, len(jvars)):
                     sj = (pd.to_numeric(df[jvars[j]], errors='coerce').fillna(0) > 0).astype(int)
                     J.iloc[i, j] = J.iloc[j, i] = jaccard_series(si, sj)
-            J.to_csv("jaccard_matrix.csv")
+            J.to_csv(f"{interim_dir}/jaccard_matrix.csv")
 
         if 'label_weighted' in labels_df.columns:
             thr = labels_df.attrs.get('weighted_threshold', None)
-            with open("weighted_label_meta.json","w") as f:
+            with open(f"{interim_dir}/weighted_label_meta.json","w") as f:
                 json.dump({"weighted_threshold": thr,
                            "target_prev": float(labels_df['label_union'].mean() if 'label_union' in labels_df.columns else np.nan)}, f, indent=2)
 
-        with open("do_not_use_features.txt","w") as f:
+        with open(f"{interim_dir}/do_not_use_features.txt","w") as f:
             for g in sorted(guard_set):
                 f.write(g + "\n")
         print(f"🛡️  Leakage guard size: {len(guard_set)}")
 
         if len(labels_df) > 0:
-            labels_df.to_csv("composite_labels.csv", index=False)
-            print(f"💾 Saved {len(labels_df.columns)} label variants to composite_labels.csv")
+            labels_df.to_csv(f"{interim_dir}/composite_labels.csv", index=False)
+            print(f"💾 Saved {len(labels_df.columns)} label variants to {interim_dir}/composite_labels.csv")
 
             print("\n📈 Label Variant Statistics:")
             for col in labels_df.columns:
@@ -965,16 +1140,94 @@ class SmartVariableFramework:
             print("⚠️ No composite labels could be created")
             return {'status': 'failed', 'reason': 'No eligible label variables found'}
 
+        # === [NEW BLOCK] Time-safety & additional guards ====================================
+        # 1) For Mode A (snapshot): forbid lifetime features from feature set if labels use lifetime
+        label_windows_used = []
+        for ev, m in label_meta.items():
+            label_windows_used.append(infer_window(ev, m.get('description', '')))
+        label_windows_used = set(w for w in label_windows_used if w != "unknown")
+
+        forbidden_windows = set()
+        if "lt" in label_windows_used or self.config.include_lifetime_in_label:
+            # forbid lifetime (lt) features to reduce leakage
+            forbidden_windows.add("lt")
+
+        # Also forbid outcome-like features by text (this duplicates text guard, but keeps mask explicit)
+        feature_cols_all = [c for c in df.columns if c not in labels_df.columns]  # exclude label columns
+        feature_cols_all = [c for c in feature_cols_all if c not in guard_set]    # first-pass guard
+
+        mask = time_safe_feature_mask(feature_cols_all, descriptions, forbidden_windows)
+        feature_cols_time_safe = [feature_cols_all[i] for i, keep in enumerate(mask) if keep]
+
+        # 2) Add ID-like & near-unique guards
+        guard_set |= id_like_columns(df.columns)
+        guard_set |= near_unique_columns(df)
+
+        # 3) Optional "too-predictive" smell-test guard (uses label_union if present)
+        try:
+            y_for_guard = None
+            for preferred in ["label_union", "label_hierarchical", "label_weighted", "label_clustered"]:
+                if preferred in labels_df.columns:
+                    y_for_guard = labels_df[preferred]
+                    break
+            if y_for_guard is not None:
+                numX_guard = df[feature_cols_time_safe].select_dtypes(include=['number'])
+                guard_set |= too_predictive_guard(numX_guard, y_for_guard, max_auc=0.90)
+        except Exception:
+            pass
+
+        # Make the final candidate feature list now (after guards)
+        feature_cols_time_safe = [c for c in feature_cols_time_safe if c not in guard_set]
+        Path(f"{interim_dir}/do_not_use_features.txt").write_text("\n".join(sorted(guard_set)))
+        print(f"🛡️  Leakage guard size (post time/ID/unique/predictive): {len(guard_set)}")
+        print(f"✅ Time-safe feature candidates: {len(feature_cols_time_safe)}")
+        # ===============================================================================
+
         # Step 3: Feature quality
         print("\n" + "="*50)
         print("STEP 3: FEATURE QUALITY ANALYSIS")
         print("="*50)
         feature_quality = self.feature_selector.analyze_feature_quality(df, descriptions)
-        feature_quality.to_csv("variable_quality_report.csv", index=False)
-        print(f"💾 Saved feature analysis to variable_quality_report.csv")
+        feature_quality.to_csv(f"{interim_dir}/variable_quality_report.csv", index=False)
+        print(f"💾 Saved feature analysis to {interim_dir}/variable_quality_report.csv")
 
         usable_features = feature_quality[feature_quality['usable_for_modeling']]
         print(f"📊 {len(usable_features)} features suitable for modeling (out of {len(feature_quality)})")
+
+        # === [NEW BLOCK] Correlation pruning on numeric features ===================
+        print("\n" + "="*50)
+        print("STEP 3B: CORRELATION PRUNING")
+        print("="*50)
+
+        # Keep only features that passed time/guard filters and are "usable_for_modeling"
+        feature_quality = feature_quality.copy()
+        usable_mask = feature_quality['usable_for_modeling'] & feature_quality['variable'].isin(feature_cols_time_safe)
+        usable = feature_quality[usable_mask].copy()
+
+        # Apply your fill-rate rule: Fill rate ≥ 0.85 (i.e., missing ≤ 0.15)
+        usable = usable[usable['missing_pct'] <= (1.0 - 0.85)]
+
+        # Numeric-only for pruning
+        num_keep = [c for c in usable['variable'] if c in df.columns and pd.api.types.is_numeric_dtype(df[c])]
+
+        # Impute quickly to compute corr
+        imp_vals = df[num_keep].copy()
+        imp_vals = imp_vals.fillna(imp_vals.median(numeric_only=True))
+
+        # Use quality_score as priority to keep the better one in a correlated pair
+        priority = usable.set_index('variable')['quality_score']
+
+        X_pruned, dropped_corr = prune_correlated(imp_vals, corr_thr=self.config.max_correlation_threshold, keep_priority=priority)
+
+        kept_features = X_pruned.columns.tolist()
+        dropped_features = sorted(set(num_keep) - set(kept_features))
+
+        # Persist keep/drop lists for training scripts
+        Path(f"{interim_dir}/feature_keep_list.txt").write_text("\n".join(kept_features))
+        Path(f"{interim_dir}/feature_drop_corr.txt").write_text("\n".join(dropped_features))
+        print(f"🔗 Correlation pruning: kept={len(kept_features)}, dropped={len(dropped_features)} (> r={self.config.max_correlation_threshold})")
+        # ================================================================================
+
 
         # Step 4: Feature selection
         print("\n" + "="*50)
@@ -1000,8 +1253,8 @@ class SmartVariableFramework:
             feature_matrix['avg_importance'] = feature_matrix[score_cols].mean(axis=1)
 
             feature_matrix = feature_matrix.sort_values('avg_importance', ascending=False)
-            feature_matrix.to_csv("feature_importance_matrix.csv", index=False)
-            print(f"💾 Saved feature importance matrix to feature_importance_matrix.csv")
+            feature_matrix.to_csv(f"{interim_dir}/feature_importance_matrix.csv", index=False)
+            print(f"💾 Saved feature importance matrix to {interim_dir}/feature_importance_matrix.csv")
 
         # Step 5: Recommendations
         print("\n" + "="*50)
@@ -1011,11 +1264,11 @@ class SmartVariableFramework:
             label_candidates, labels_df, feature_quality, feature_selections, negative_pattern_vars
         )
 
-        with open("recommended_pipeline.json", "w") as f:
+        with open(f"{interim_dir}/recommended_pipeline.json", "w") as f:
             json.dump(recommendations, f, indent=2, default=str)
-        print("💾 Saved recommendations to recommended_pipeline.json")
+        print(f"💾 Saved recommendations to {interim_dir}/recommended_pipeline.json")
 
-        self._generate_report(label_candidates, labels_df, feature_quality, recommendations, negative_pattern_vars)
+        self._generate_report(label_candidates, labels_df, feature_quality, recommendations, negative_pattern_vars, interim_dir)
 
         print("\n✅ Smart Variable Framework Analysis Complete!")
         print("="*60)
@@ -1098,10 +1351,11 @@ class SmartVariableFramework:
 
     def _generate_report(self, label_candidates: pd.DataFrame, labels_df: pd.DataFrame,
                          feature_quality: pd.DataFrame, recommendations: Dict,
-                         negative_pattern_vars: pd.DataFrame = None):
+                         negative_pattern_vars: pd.DataFrame = None, interim_dir: str = None):
         """Generate comprehensive markdown report"""
 
-        with open("smart_framework_report.md", "w") as f:
+        report_path = f"{interim_dir}/smart_framework_report.md" if interim_dir else "smart_framework_report.md"
+        with open(report_path, "w") as f:
             f.write("# Smart Variable Framework - Analysis Report\n\n")
             f.write(f"**Generated:** {pd.Timestamp.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
 
@@ -1210,7 +1464,7 @@ class SmartVariableFramework:
             f.write("- `recommended_pipeline.json` - Machine-readable recommendations\n")
             f.write("- `smart_framework_report.md` - This comprehensive report\n")
 
-        print("💾 Saved comprehensive report to smart_framework_report.md")
+        print(f"💾 Saved comprehensive report to {report_path}")
 
 # =============================================
 # HYPERPARAMETER SWEEP

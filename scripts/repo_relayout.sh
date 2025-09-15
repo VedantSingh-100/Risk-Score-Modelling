@@ -64,3 +64,4 @@ echo "✅ Repo relayout complete!"
 echo ""
 echo "Directory structure:"
 find . -type d -name "__pycache__" -prune -o -type d -print | head -20 | sort
+

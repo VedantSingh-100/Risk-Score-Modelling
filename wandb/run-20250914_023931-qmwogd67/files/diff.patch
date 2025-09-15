@@ -1,0 +1,598 @@
+diff --git a/requirements.txt b/requirements.txt
+index 6cf0ec4..92fcad1 100644
+--- a/requirements.txt
++++ b/requirements.txt
+@@ -10,5 +10,4 @@ seaborn>=0.12
+ joblib>=1.3
+ openpyxl>=3.1
+ xlrd>=2.0
+-optuna>=3.0
+ wandb>=0.16
+\ No newline at end of file
+diff --git a/scripts/run_risk_model_sweep.sh b/scripts/run_risk_model_sweep.sh
+index 52f6186..828a27b 100755
+--- a/scripts/run_risk_model_sweep.sh
++++ b/scripts/run_risk_model_sweep.sh
+@@ -9,9 +9,9 @@ set -euo pipefail
+ # =============================================================================
+ 
+ # Weights & Biases Configuration
+-export WANDB_PROJECT="Risk Score"
+ export WANDB_API_KEY="3ff6a13421fb5921502235dde3f9a4700f33b5b8"
+ export WANDB_MODE="online"
++WANDB_PROJECT="Risk Score"
+ 
+ # Pipeline Configuration
+ ALGO="${1:-xgb}"  # xgb or lgb
+@@ -74,7 +74,7 @@ echo "- Working Directory: $(pwd)"
+ echo "📦 Checking required packages..."
+ python -c "
+ import sys
+-required = ['pandas', 'numpy', 'scikit-learn', 'optuna', 'tqdm']
++required = ['pandas', 'numpy', 'scikit-learn', 'tqdm']
+ if '$ALGO' == 'xgb':
+     required.append('xgboost')
+ else:
+@@ -131,7 +131,8 @@ python -m src.train_gbdt_sweep \
+     --trials "$TRIALS" \
+     --n-splits "$N_SPLITS" \
+     --seed "$SEED" \
+-    --wandb
++    --wandb \
++    --wandb-project "$WANDB_PROJECT"
+ 
+ gbdt_exit_code=$?
+ end_time=$(date +%s)
+@@ -149,12 +150,9 @@ if [[ $gbdt_exit_code -eq 0 ]]; then
+ import json
+ with open('$GBDT_OUTPUT/best_params.json', 'r') as f:
+     results = json.load(f)
+-print(f'Best CV AUC: {results[\"best_score\"]:.6f}')
+-print(f'Algorithm: {results[\"algorithm\"].upper()}')
+-print(f'Trials completed: {results[\"n_trials\"]}')
+-if 'final_oof_auc' in results:
+-    print(f'Final OOF AUC: {results[\"final_oof_auc\"]:.6f}')
+-    print(f'Final OOF AP: {results[\"final_oof_ap\"]:.6f}')
++print(f'Best Trial: #{results[\"trial\"]}')
++print(f'Best AUC: {results[\"auc\"]:.6f}')
++print(f'Best AP: {results[\"ap\"]:.6f}')
+ "
+     fi
+ else
+diff --git a/src/train_gbdt_sweep.py b/src/train_gbdt_sweep.py
+index f59314f..9ceef19 100644
+--- a/src/train_gbdt_sweep.py
++++ b/src/train_gbdt_sweep.py
+@@ -1,300 +1,222 @@
+ # train_gbdt_sweep.py
+-import json, numpy as np, pandas as pd
++import os, json, time, math, random, warnings
++import numpy as np, pandas as pd
+ from pathlib import Path
+ from tqdm import tqdm
+-import optuna
+ from sklearn.model_selection import StratifiedKFold
+-from sklearn.metrics import roc_auc_score, average_precision_score
++from sklearn.linear_model import LogisticRegression
++from sklearn.preprocessing import StandardScaler
++from sklearn.pipeline import Pipeline
+ 
+-from .metrics import summarize_all
+-from .io_utils import load_xy, dump_json, save_df
++from .metrics import summarize_all, decile_table
++from .io_utils import load_xy, maybe_load_monotone, dump_json, save_df
+ 
+-try:
+-    import wandb
+-    HAS_WANDB = True
+-except ImportError:
+-    HAS_WANDB = False
++warnings.filterwarnings("ignore")
++RNG = np.random.default_rng(42)
+ 
+-def cv_score_xgb(X, y, params, n_splits=5, seed=42):
+-    """Cross-validation scoring for XGBoost with early stopping."""
++def try_import_xgb():
++    try:
++        import xgboost as xgb
++        return xgb
++    except Exception:
++        return None
++
++def try_import_lgb():
++    try:
++        import lightgbm as lgb
++        return lgb
++    except Exception:
++        return None
++
++def make_param_sampler(algo, X, y):
++    # class balance (note: your prevalence ~= 0.52, so this is mild)
++    pos = y.sum(); neg = len(y)-pos
++    spw = max(neg/(pos+1e-9), 0.5)  # ~0.92 here
++
++    if algo == "xgb":
++        space = {
++            "eta":        lambda: 10**RNG.uniform(-2.0, -0.7),   # 0.01–0.2
++            "max_depth":  lambda: RNG.integers(3, 9),
++            "min_child_weight": lambda: 10**RNG.uniform(-1, 2),  # 0.1–100
++            "subsample":  lambda: RNG.uniform(0.6, 1.0),
++            "colsample_bytree": lambda: RNG.uniform(0.6, 1.0),
++            "gamma":      lambda: 10**RNG.uniform(-3, 1),        # 0.001–10
++            "reg_alpha":  lambda: 10**RNG.uniform(-4, 0),        # 1e-4–1
++            "reg_lambda": lambda: 10**RNG.uniform(-3, 1),        # 0.001–10
++            "scale_pos_weight": lambda: RNG.choice([1.0, spw, 1.25*spw]),
++            "n_estimators": lambda: RNG.integers(800, 2500)
++        }
++    else:  # lightgbm
++        space = {
++            "learning_rate": lambda: 10**RNG.uniform(-2.0, -0.7),
++            "num_leaves":    lambda: int(2**RNG.uniform(4, 7.5)),  # 16–181
++            "max_depth":     lambda: RNG.integers(-1, 11),
++            "min_child_samples": lambda: int(2**RNG.uniform(3, 8)), # 8–256
++            "subsample":     lambda: RNG.uniform(0.6, 1.0),
++            "colsample_bytree": lambda: RNG.uniform(0.6, 1.0),
++            "reg_alpha":     lambda: 10**RNG.uniform(-4, 0),
++            "reg_lambda":    lambda: 10**RNG.uniform(-3, 1),
++            "n_estimators":  lambda: RNG.integers(800, 2500),
++            "scale_pos_weight": lambda: RNG.choice([1.0, spw, 1.25*spw])
++        }
++    return space
++
++def sample_params(space):
++    return {k: v() for k, v in space.items()}
++
++def run_cv_xgb(X, y, params, monotone_vec=None, seed=42, n_splits=5):
+     import xgboost as xgb
+-    
+     skf = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=seed)
+-    scores = []
+-    
+-    for fold, (tr, va) in enumerate(skf.split(X, y)):
+-        model = xgb.XGBClassifier(**params)
+-        model.fit(
+-            X.iloc[tr], y[tr],
+-            eval_set=[(X.iloc[va], y[va])],
++    oof = np.zeros(len(y))
++    feats = X.columns.tolist()
++    fi = np.zeros(len(feats))
++
++    # monotone string "(1,0,-1,...)"
++    mono_str = None
++    if monotone_vec is not None:
++        mono_str = "(" + ",".join(str(int(v)) for v in monotone_vec) + ")"
++
++    for tr_idx, va_idx in skf.split(X, y):
++        Xtr, Xva = X.iloc[tr_idx], X.iloc[va_idx]
++        ytr, yva = y[tr_idx], y[va_idx]
++        model = xgb.XGBClassifier(
++            objective="binary:logistic",
+             eval_metric="auc",
+-            verbose=False
++            tree_method="hist",
++            random_state=seed,
++            early_stopping_rounds=300,
++            **params
+         )
+-        pred = model.predict_proba(X.iloc[va])[:, 1]
+-        auc = roc_auc_score(y[va], pred)
+-        scores.append(auc)
+-    
+-    return np.mean(scores), np.std(scores)
++        if mono_str is not None:
++            model.set_params(monotone_constraints=mono_str)
++        model.fit(Xtr, ytr, eval_set=[(Xva, yva)], verbose=False)
++        p = model.predict_proba(Xva)[:,1]
++        oof[va_idx] = p
++        try:
++            fi += model.feature_importances_
++        except Exception:
++            pass
++    fi /= n_splits
++    return oof, pd.DataFrame({"feature": feats, "importance": fi}).sort_values("importance", ascending=False)
+ 
+-def cv_score_lgb(X, y, params, n_splits=5, seed=42):
+-    """Cross-validation scoring for LightGBM with early stopping."""
++def run_cv_lgb(X, y, params, monotone_vec=None, seed=42, n_splits=5):
+     import lightgbm as lgb
+-    
+     skf = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=seed)
+-    scores = []
+-    
+-    for fold, (tr, va) in enumerate(skf.split(X, y)):
+-        model = lgb.LGBMClassifier(**params)
+-        model.fit(
+-            X.iloc[tr], y[tr],
+-            eval_set=[(X.iloc[va], y[va])],
+-            eval_metric="auc",
+-            callbacks=[lgb.early_stopping(100, verbose=False)]
++    oof = np.zeros(len(y))
++    feats = X.columns.tolist()
++    fi = np.zeros(len(feats))
++    for tr_idx, va_idx in skf.split(X, y):
++        Xtr, Xva = X.iloc[tr_idx], X.iloc[va_idx]
++        ytr, yva = y[tr_idx], y[va_idx]
++        model = lgb.LGBMClassifier(
++            objective="binary",
++            random_state=seed,
++            **params
+         )
+-        pred = model.predict_proba(X.iloc[va])[:, 1]
+-        auc = roc_auc_score(y[va], pred)
+-        scores.append(auc)
+-    
+-    return np.mean(scores), np.std(scores)
+-
+-def objective_xgb(trial, X, y, n_splits, seed, use_wandb=False):
+-    """Optuna objective for XGBoost hyperparameter optimization."""
+-    params = {
+-        'objective': 'binary:logistic',
+-        'eval_metric': 'auc',
+-        'tree_method': 'hist',
+-        'random_state': seed,
+-        'n_jobs': -1,
+-        
+-        # Hyperparameters to optimize
+-        'n_estimators': trial.suggest_int('n_estimators', 500, 2000),
+-        'learning_rate': trial.suggest_float('learning_rate', 0.01, 0.3, log=True),
+-        'max_depth': trial.suggest_int('max_depth', 3, 10),
+-        'subsample': trial.suggest_float('subsample', 0.6, 1.0),
+-        'colsample_bytree': trial.suggest_float('colsample_bytree', 0.6, 1.0),
+-        'reg_alpha': trial.suggest_float('reg_alpha', 1e-8, 10.0, log=True),
+-        'reg_lambda': trial.suggest_float('reg_lambda', 1e-8, 10.0, log=True),
+-        'min_child_weight': trial.suggest_int('min_child_weight', 1, 10),
+-        'early_stopping_rounds': 100
+-    }
+-    
+-    mean_auc, std_auc = cv_score_xgb(X, y, params, n_splits, seed)
+-    
+-    # Log to wandb if enabled
+-    if use_wandb and HAS_WANDB:
+-        wandb.log({
+-            'trial': trial.number,
+-            'cv_auc_mean': mean_auc,
+-            'cv_auc_std': std_auc,
+-            **{f'param_{k}': v for k, v in params.items() if k not in ['objective', 'eval_metric', 'tree_method', 'random_state', 'n_jobs']}
+-        })
+-    
+-    return mean_auc
++        if monotone_vec is not None:
++            model.set_params(monotone_constraints=monotone_vec)
++        model.fit(Xtr, ytr, eval_set=[(Xva, yva)], eval_metric="auc",
++                  callbacks=[lgb.early_stopping(stopping_rounds=300, verbose=False)])
++        p = model.predict_proba(Xva)[:,1]
++        oof[va_idx] = p
++        try:
++            fi += model.booster_.feature_importance(importance_type="gain")
++        except Exception:
++            pass
++    fi /= n_splits
++    return oof, pd.DataFrame({"feature": feats, "importance": fi}).sort_values("importance", ascending=False)
+ 
+-def objective_lgb(trial, X, y, n_splits, seed, use_wandb=False):
+-    """Optuna objective for LightGBM hyperparameter optimization."""
+-    params = {
+-        'objective': 'binary',
+-        'metric': 'auc',
+-        'boosting_type': 'gbdt',
+-        'random_state': seed,
+-        'n_jobs': -1,
+-        'verbose': -1,
+-        
+-        # Hyperparameters to optimize
+-        'n_estimators': trial.suggest_int('n_estimators', 500, 2000),
+-        'learning_rate': trial.suggest_float('learning_rate', 0.01, 0.3, log=True),
+-        'num_leaves': trial.suggest_int('num_leaves', 10, 300),
+-        'max_depth': trial.suggest_int('max_depth', 3, 10),
+-        'subsample': trial.suggest_float('subsample', 0.6, 1.0),
+-        'colsample_bytree': trial.suggest_float('colsample_bytree', 0.6, 1.0),
+-        'reg_alpha': trial.suggest_float('reg_alpha', 1e-8, 10.0, log=True),
+-        'reg_lambda': trial.suggest_float('reg_lambda', 1e-8, 10.0, log=True),
+-        'min_child_samples': trial.suggest_int('min_child_samples', 5, 100),
+-    }
+-    
+-    mean_auc, std_auc = cv_score_lgb(X, y, params, n_splits, seed)
+-    
+-    # Log to wandb if enabled
+-    if use_wandb and HAS_WANDB:
+-        wandb.log({
+-            'trial': trial.number,
+-            'cv_auc_mean': mean_auc,
+-            'cv_auc_std': std_auc,
+-            **{f'param_{k}': v for k, v in params.items() if k not in ['objective', 'metric', 'boosting_type', 'random_state', 'n_jobs', 'verbose']}
+-        })
+-    
+-    return mean_auc
++def maybe_wandb(args):
++    if not args.wandb:
++        return None
++    try:
++        import wandb
++        # Use specific entity and project for your CMU workspace
++        wandb.init(
++            entity=args.wandb_entity,
++            project=args.wandb_project or "Risk_Score", 
++            config=vars(args)
++        )
++        return wandb
++    except Exception as e:
++        print(f"[wandb] disabled ({e})")
++        return None
+ 
+ def main():
+     import argparse
+-    ap = argparse.ArgumentParser(description="GBDT Hyperparameter Sweep with Optuna")
+-    ap.add_argument("--data-root", default="data/processed", help="Data directory")
+-    ap.add_argument("--out-dir", default="model_outputs/gbdt_sweep", help="Output directory")
+-    ap.add_argument("--algo", choices=["xgb", "lgb"], default="xgb", help="Algorithm to optimize")
+-    ap.add_argument("--trials", type=int, default=60, help="Number of optimization trials")
+-    ap.add_argument("--n-splits", type=int, default=5, help="CV folds")
+-    ap.add_argument("--seed", type=int, default=42, help="Random seed")
+-    ap.add_argument("--wandb", action="store_true", help="Enable Weights & Biases logging")
++    ap = argparse.ArgumentParser()
++    ap.add_argument("--data-root", default="data")
++    ap.add_argument("--out-dir", default="model_outputs/gbdt_sweep")
++    ap.add_argument("--algo", choices=["xgb","lgb"], default="xgb")
++    ap.add_argument("--trials", type=int, default=60)
++    ap.add_argument("--seed", type=int, default=42)
++    ap.add_argument("--n-splits", type=int, default=5)
++    ap.add_argument("--wandb", action="store_true")
++    ap.add_argument("--wandb-project", default=None)
++    ap.add_argument("--wandb-entity", default="ved100-carnegie-mellon-university", 
++                    help="W&B entity (organization/username)")
++    ap.add_argument("--use-monotone", action="store_true",
++                    help="loads data/monotone_config.json if present")
+     args = ap.parse_args()
+-    
+-    # Create output directory
++
+     Path(args.out_dir).mkdir(parents=True, exist_ok=True)
+-    
+-    # Load data
+-    print("Loading data...")
+-    X, y, target_col = load_xy(args.data_root)
+-    print(f"Loaded X: {X.shape}, y: {len(y)} (prevalence: {y.mean():.4f})")
+-    print(f"Target column: {target_col}")
+-    
+-    # Initialize wandb if requested
+-    use_wandb = args.wandb and HAS_WANDB
+-    if use_wandb:
+-        wandb.init(
+-            project="Risk Score",
+-            name=f"{args.algo.upper()}_sweep_{args.trials}trials",
+-            config={
+-                "algorithm": args.algo,
+-                "trials": args.trials,
+-                "n_splits": args.n_splits,
+-                "seed": args.seed,
+-                "n_samples": len(y),
+-                "n_features": X.shape[1],
+-                "prevalence": float(y.mean())
+-            }
+-        )
+-    
+-    # Create study
+-    study = optuna.create_study(direction='maximize', seed=args.seed)
+-    
+-    # Define objective function
+-    if args.algo == "xgb":
+-        objective_func = lambda trial: objective_xgb(trial, X, y, args.n_splits, args.seed, use_wandb)
+-        print(f"Starting XGBoost hyperparameter optimization with {args.trials} trials...")
+-    else:
+-        objective_func = lambda trial: objective_lgb(trial, X, y, args.n_splits, args.seed, use_wandb)
+-        print(f"Starting LightGBM hyperparameter optimization with {args.trials} trials...")
+-    
+-    # Run optimization
+-    study.optimize(objective_func, n_trials=args.trials, show_progress_bar=True)
+-    
+-    # Get best parameters
+-    best_params = study.best_params.copy()
+-    best_score = study.best_value
+-    
+-    print(f"\nOptimization complete!")
+-    print(f"Best CV AUC: {best_score:.6f}")
+-    print(f"Best parameters: {json.dumps(best_params, indent=2)}")
+-    
+-    # Save results
+-    results = {
+-        "algorithm": args.algo,
+-        "best_score": float(best_score),
+-        "best_params": best_params,
+-        "n_trials": args.trials,
+-        "target_column": target_col
+-    }
+-    
+-    dump_json(results, Path(args.out_dir) / "best_params.json")
+-    
+-    # Save all trials
+-    trials_df = study.trials_dataframe()
+-    save_df(trials_df, Path(args.out_dir) / "all_trials.csv")
+-    
+-    # Train final model with best parameters and get OOF predictions
+-    print("Training final model with best parameters...")
+-    
+-    if args.algo == "xgb":
+-        import xgboost as xgb
+-        final_params = {
+-            'objective': 'binary:logistic',
+-            'eval_metric': 'auc',
+-            'tree_method': 'hist',
+-            'random_state': args.seed,
+-            'n_jobs': -1,
+-            **best_params
+-        }
+-        
+-        skf = StratifiedKFold(n_splits=args.n_splits, shuffle=True, random_state=args.seed)
+-        oof = np.zeros(len(y))
+-        
+-        for fold, (tr, va) in enumerate(skf.split(X, y)):
+-            model = xgb.XGBClassifier(**final_params)
+-            model.fit(
+-                X.iloc[tr], y[tr],
+-                eval_set=[(X.iloc[va], y[va])],
+-                eval_metric="auc",
+-                verbose=False
+-            )
+-            pred = model.predict_proba(X.iloc[va])[:, 1]
+-            oof[va] = pred
+-    
+-    else:  # LightGBM
+-        import lightgbm as lgb
+-        final_params = {
+-            'objective': 'binary',
+-            'metric': 'auc',
+-            'boosting_type': 'gbdt',
+-            'random_state': args.seed,
+-            'n_jobs': -1,
+-            'verbose': -1,
+-            **best_params
+-        }
+-        
+-        skf = StratifiedKFold(n_splits=args.n_splits, shuffle=True, random_state=args.seed)
+-        oof = np.zeros(len(y))
+-        
+-        for fold, (tr, va) in enumerate(skf.split(X, y)):
+-            model = lgb.LGBMClassifier(**final_params)
+-            model.fit(
+-                X.iloc[tr], y[tr],
+-                eval_set=[(X.iloc[va], y[va])],
+-                eval_metric="auc",
+-                callbacks=[lgb.early_stopping(100, verbose=False)]
+-            )
+-            pred = model.predict_proba(X.iloc[va])[:, 1]
+-            oof[va] = pred
+-    
+-    # Calculate final metrics
+-    final_auc = roc_auc_score(y, oof)
+-    final_ap = average_precision_score(y, oof)
+-    
+-    print(f"Final OOF AUC: {final_auc:.6f}")
+-    print(f"Final OOF AP: {final_ap:.6f}")
+-    
+-    # Save OOF predictions
+-    oof_df = pd.DataFrame({
+-        'oof_pred': oof,
+-        'y_true': y
+-    })
+-    save_df(oof_df, Path(args.out_dir) / "oof_predictions.csv")
+-    
+-    # Generate summary metrics
+-    summary, deciles = summarize_all(y, oof, label=f"{args.algo}_best")
+-    save_df(deciles, Path(args.out_dir) / "decile_analysis.csv")
+-    
+-    # Update results with final metrics
+-    results.update({
+-        "final_oof_auc": float(final_auc),
+-        "final_oof_ap": float(final_ap),
+-        "summary_metrics": summary
+-    })
+-    
+-    dump_json(results, Path(args.out_dir) / "final_results.json")
+-    
+-    # Log final results to wandb
+-    if use_wandb:
+-        wandb.log({
+-            "best_cv_auc": best_score,
+-            "final_oof_auc": final_auc,
+-            "final_oof_ap": final_ap,
+-            "gini": summary["gini"],
+-            "ks_stat": summary["ks"]
+-        })
++    X, y, label_name = load_xy(args.data_root)
++    print(f"Loaded X={X.shape}, positives={int(y.sum())}/{len(y)}  (target={label_name})")
++
++    # select backend
++    use_xgb = args.algo == "xgb" and (try_import_xgb() is not None)
++    use_lgb = args.algo == "lgb" and (try_import_lgb() is not None)
++    if not (use_xgb or use_lgb):
++        raise RuntimeError("Neither XGBoost nor LightGBM available. Please install one.")
++
++    wandb = maybe_wandb(args)
++    param_space = make_param_sampler("xgb" if use_xgb else "lgb", X, y)
++    monotone_vec = maybe_load_monotone(args.data_root, X.columns) if args.use_monotone else None
++
++    trial_rows, best = [], {"auc": -1}
++    for t in range(1, args.trials+1):
++        params = sample_params(param_space)
++        if use_xgb:
++            oof, fi = run_cv_xgb(X, y, params, monotone_vec, seed=args.seed, n_splits=args.n_splits)
++        else:
++            oof, fi = run_cv_lgb(X, y, params, monotone_vec, seed=args.seed, n_splits=args.n_splits)
++
++        smry, dec = summarize_all(y, oof, label="oof")
++        row = {"trial": t, **params, **smry}
++        trial_rows.append(row)
++
++        if smry["auc"] > best["auc"]:
++            best = {"trial": t, "params": params, "auc": smry["auc"], "ap": smry["ap"]}
++            # save running best artifacts
++            fi.to_csv(Path(args.out_dir)/"feature_importance_running_best.csv", index=False)
++            dec.to_csv(Path(args.out_dir)/"deciles_running_best.csv", index=False)
++            pd.DataFrame({"oof_pred": oof, "y": y}).to_csv(Path(args.out_dir)/"oof_running_best.csv", index=False)
++
++        if wandb:
++            wandb.log({**smry, "trial": t})
++
++        print(f"[{t:03d}/{args.trials}] AUC={smry['auc']:.4f}  AP={smry['ap']:.4f}")
++
++    trials_df = pd.DataFrame(trial_rows).sort_values("auc", ascending=False)
++    trials_df.to_csv(Path(args.out_dir)/"trials_summary.csv", index=False)
++    dump_json(best, Path(args.out_dir)/"best_params.json")
++
++    # Platt calibration on best OOF
++    oof_df = pd.read_csv(Path(args.out_dir)/"oof_running_best.csv")
++    clf_cal = LogisticRegression(max_iter=1000).fit(oof_df[["oof_pred"]].values, oof_df["y"].values)
++    oof_cal = clf_cal.predict_proba(oof_df[["oof_pred"]].values)[:,1]
++    cal_smry, cal_dec = summarize_all(oof_df["y"].values, oof_cal, label="oof_cal")
++    cal_dec.to_csv(Path(args.out_dir)/"deciles_running_best_calibrated.csv", index=False)
++    dump_json({"calibration_auc": cal_smry["auc"], "calibration_ap": cal_smry["ap"]},
++              Path(args.out_dir)/"calibration_summary.json")
++
++    if wandb:
++        wandb.log({"oof_cal_auc": cal_smry["auc"], "oof_cal_ap": cal_smry["ap"]})
+         wandb.finish()
+-    
+-    print(f"\nAll results saved to: {args.out_dir}")
+-    print(f"Best parameters saved to: {args.out_dir}/best_params.json")
++
++    print("\n== DONE ==")
++    print(f"Best trial #{best['trial']}  AUC={best['auc']:.4f}, AP={best['ap']:.4f}")
++    print(f"Artifacts → {args.out_dir}")
+ 
+ if __name__ == "__main__":
+     main()
+diff --git a/submit_risk_sweep_job.sh b/submit_risk_sweep_job.sh
+index 2c96f10..2c94ca9 100755
+--- a/submit_risk_sweep_job.sh
++++ b/submit_risk_sweep_job.sh
+@@ -51,7 +51,7 @@ echo "Expected runtime: 8-12 hours"
+ 
+ # Install additional packages if needed
+ echo "=== Checking dependencies ==="
+-pip install --user -q optuna wandb
++pip install --user -q wandb
+ 
+ echo "=== Starting Risk Model Sweep ==="
+ bash scripts/run_risk_model_sweep.sh "$ALGO" "$TRIALS"
+@@ -70,16 +70,16 @@ if [[ $sweep_exit_code -eq 0 ]]; then
+     echo "📊 Results Summary:"
+     
+     # Display key results if available
+-    if [[ -f "model_outputs/gbdt_sweep_${ALGO}/final_results.json" ]]; then
++    if [[ -f "model_outputs/gbdt_sweep_${ALGO}/best_params.json" ]]; then
+         echo "GBDT Optimization Results:"
+         python -c "
+ import json
+ try:
+-    with open('model_outputs/gbdt_sweep_${ALGO}/final_results.json', 'r') as f:
++    with open('model_outputs/gbdt_sweep_${ALGO}/best_params.json', 'r') as f:
+         results = json.load(f)
+-    print(f'  Best CV AUC: {results[\"best_score\"]:.6f}')
+-    print(f'  Final OOF AUC: {results.get(\"final_oof_auc\", \"N/A\")}')
+-    print(f'  Final OOF AP: {results.get(\"final_oof_ap\", \"N/A\")}')
++    print(f'  Best Trial: #{results[\"trial\"]}')
++    print(f'  Best AUC: {results[\"auc\"]:.6f}')
++    print(f'  Best AP: {results[\"ap\"]:.6f}')
+ except Exception as e:
+     print(f'  Could not parse results: {e}')
+ "

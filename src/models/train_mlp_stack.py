@@ -9,8 +9,8 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import roc_auc_score, average_precision_score
 
-from .metrics import summarize_all
-from .io_utils import load_xy, dump_json
+from ..utils.metrics import summarize_all
+from ..utils.io_utils import load_xy, dump_json
 
 def cv_oof(model, X, y, n_splits=5, seed=42):
     skf = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=seed)
@@ -42,14 +42,27 @@ def make_xgb(best_params=None):
         n_estimators=1200,
         eta=0.05, max_depth=6, subsample=0.8, colsample_bytree=0.8,
         reg_alpha=0.1, reg_lambda=0.5,
-        random_state=42, early_stopping_rounds=200
+        random_state=42
     )
     if best_params:
         params.update(best_params)
-        params.pop("scale_pos_weight", None)  # we’ll re-fit without early-stop meta params
+        # Remove parameters that shouldn't be used in CV without validation sets
+        params.pop("scale_pos_weight", None)
+        params.pop("early_stopping_rounds", None)
     def _factory():
         return xgb.XGBClassifier(**params)
     return _factory
+
+def nested_stack_oof(oof_list, y, n_splits=5, seed=42):
+    Z = np.column_stack(oof_list)
+    skf = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=seed)
+    oof_stack = np.zeros(len(y))
+    for tr, va in skf.split(Z, y):
+        cal = LogisticRegression(max_iter=1000).fit(Z[tr], y[tr])
+        oof_stack[va] = cal.predict_proba(Z[va])[:,1]
+    # Fit final calibrator on full Z for deployment convenience
+    final_cal = LogisticRegression(max_iter=1000).fit(Z, y)
+    return oof_stack, final_cal
 
 def main():
     import argparse
@@ -59,6 +72,8 @@ def main():
     ap.add_argument("--best-xgb-params", default="model_outputs/gbdt_sweep/best_params.json")
     ap.add_argument("--n-splits", type=int, default=5)
     ap.add_argument("--seed", type=int, default=42)
+    ap.add_argument("--stack-nested", action="store_true",
+                help="If set, fit stacker via nested OOF to get unbiased stack OOF")
     args = ap.parse_args()
 
     Path(args.out_dir).mkdir(parents=True, exist_ok=True)
@@ -75,8 +90,11 @@ def main():
 
     # 2) Calibrated stacker (Platt)
     Z = np.column_stack([oof_xgb, oof_mlp])
-    cal = LogisticRegression(max_iter=1000).fit(Z, y)
-    oof_stack = cal.predict_proba(Z)[:,1]
+    if args.stack_nested:
+        oof_stack, cal = nested_stack_oof([oof_xgb, oof_mlp], y, n_splits=args.n_splits, seed=args.seed)
+    else:
+        cal = LogisticRegression(max_iter=1000).fit(Z, y)
+        oof_stack = cal.predict_proba(Z)[:,1]
 
     # 3) Metrics & artifacts
     rows = []

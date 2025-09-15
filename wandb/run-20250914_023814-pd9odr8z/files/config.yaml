@@ -1,0 +1,50 @@
+_wandb:
+    value:
+        cli_version: 0.21.1
+        e:
+            2mcjrqblo9i41oxox7gwg4g9y78jepd7:
+                cpu_count: 48
+                cpu_count_logical: 48
+                cudaVersion: "12.9"
+                disk:
+                    /:
+                        total: "236663791616"
+                        used: "87959908352"
+                email: vhsingh@andrew.cmu.edu
+                executable: /home/vhsingh/miniconda3/envs/Research/bin/python
+                git:
+                    commit: 4fb83a8a9fbb82b4843fe30843249149a4aa3c1d
+                    remote: https://github.com/VedantSingh-100/Risk-Score-Modelling.git
+                gpu: NVIDIA RTX 6000 Ada Generation
+                gpu_count: 1
+                gpu_nvidia:
+                    - architecture: Ada
+                      cudaCores: 18176
+                      memoryTotal: "51527024640"
+                      name: NVIDIA RTX 6000 Ada Generation
+                      uuid: GPU-60a895a3-ca95-9eef-8b03-8e894f9972e9
+                host: babel-5-11
+                memory:
+                    total: "810777182208"
+                os: Linux-5.14.0-503.40.1.el9_5.x86_64-x86_64-with-glibc2.34
+                program: <python with no main file>
+                python: CPython 3.12.9
+                root: /home/vhsingh/Parshvi_project
+                slurm:
+                    job_id: "5458098"
+                startedAt: "2025-09-14T06:38:14.083377Z"
+                writerId: 2mcjrqblo9i41oxox7gwg4g9y78jepd7
+        m: []
+        python_version: 3.12.9
+        t:
+            "3":
+                - 2
+                - 16
+            "4": 3.12.9
+            "5": 0.21.1
+            "8":
+                - 2
+            "12": 0.21.1
+            "13": linux-x86_64
+test:
+    value: true

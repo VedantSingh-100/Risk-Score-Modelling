@@ -1,272 +1,206 @@
-# train_gbdt_sweep.py
-import os, json, time, math, random, warnings
-import numpy as np, pandas as pd
+# train_gdbt_sweep.py
+import argparse, json
 from pathlib import Path
-from tqdm import tqdm
+import numpy as np, pandas as pd
 from sklearn.model_selection import StratifiedKFold
+from sklearn.metrics import roc_auc_score, average_precision_score, log_loss, roc_curve
 from sklearn.linear_model import LogisticRegression
-from sklearn.preprocessing import StandardScaler
-from sklearn.pipeline import Pipeline
 
-from ..utils.metrics import summarize_all, decile_table
-from ..utils.io_utils import load_xy, maybe_load_monotone, dump_json, save_df
+try:
+    import wandb
+    WANDB_AVAILABLE = True
+except ImportError:
+    WANDB_AVAILABLE = False
+    print("WARNING: wandb not available. Install with: pip install wandb")
 
-warnings.filterwarnings("ignore")
-RNG = np.random.default_rng(42)
+def load_xy(data_root: Path, label_col: str | None):
+    X = pd.read_parquet(data_root / "X_features.parquet")
+    X = X.astype(np.float32) # memory + speed
+    ydf = pd.read_csv(data_root / "y_label.csv")
+    if label_col is None:
+        label_col = "label" if "label" in ydf.columns else ydf.columns[0]
+    y = ydf[label_col].astype(int).values
+    if len(y) != len(X):
+        raise ValueError(f"Row mismatch: X={len(X)} vs y={len(y)}")
+    return X, y, label_col
 
-def try_import_xgb():
-    try:
-        import xgboost as xgb
-        return xgb
-    except Exception:
-        return None
+def summarize_all(y, p, label="oof"):
+    p = np.nan_to_num(p, nan=0.0, posinf=0.0, neginf=0.0)
+    auc = roc_auc_score(y, p); ap = average_precision_score(y, p)
+    fpr, tpr, _ = roc_curve(y, p); ks = float(np.max(tpr - fpr))
+    gini = 2*auc - 1; brier = np.mean((p - y)**2); ll = log_loss(y, p)
+    return {"label": label, "auc": float(auc), "ap": float(ap), "ks": ks, "gini": gini, "brier": brier, "logloss": float(ll)}
 
-def try_import_lgb():
-    try:
-        import lightgbm as lgb
-        return lgb
-    except Exception:
-        return None
+def decile_table(y, p):
+    n = len(y); order = np.argsort(-p); y = y[order]; p = p[order]
+    bins = np.linspace(0, n, 11, dtype=int); rows = []
+    for d in range(10):
+        a, b = bins[d], bins[d+1]
+        yy, pp = y[a:b], p[a:b]
+        rows.append({"decile": d+1, "n": len(yy), "positives": int(yy.sum()),
+                     "rate": float(yy.mean()), "score_min": float(pp.min()), "score_max": float(pp.max()), "score_mean": float(pp.mean())})
+    return pd.DataFrame(rows)
 
-def make_param_sampler(algo, X, y):
-    # class balance (note: your prevalence ~= 0.52, so this is mild)
-    pos = y.sum(); neg = len(y)-pos
-    spw = max(neg/(pos+1e-9), 0.5)  # ~0.92 here
+def make_param_sampler_xgb(prev):
+    spw = max((1.0-prev)/max(prev,1e-9), 1.0)
+    rng = np.random.default_rng(42)
+    def sample():
+        return dict(
+            eta=float(10**rng.uniform(-2.0, -0.7)),
+            max_depth=int(rng.integers(3, 9)),
+            min_child_weight=float(10**rng.uniform(-1, 2)),
+            subsample=float(rng.uniform(0.6, 1.0)),
+            colsample_bytree=float(rng.uniform(0.6, 1.0)),
+            gamma=float(10**rng.uniform(-3, 1)),
+            reg_alpha=float(10**rng.uniform(-4, 0)),
+            reg_lambda=float(10**rng.uniform(-3, 1)),
+            scale_pos_weight=float(spw),
+            n_estimators=int(rng.integers(800, 2000)),
+        )
+    return sample
 
-    if algo == "xgb":
-        space = {
-            "eta":        lambda: 10**RNG.uniform(-2.0, -0.7),   # 0.01–0.2
-            "max_depth":  lambda: RNG.integers(3, 9),
-            "min_child_weight": lambda: 10**RNG.uniform(-1, 2),  # 0.1–100
-            "subsample":  lambda: RNG.uniform(0.6, 1.0),
-            "colsample_bytree": lambda: RNG.uniform(0.6, 1.0),
-            "gamma":      lambda: 10**RNG.uniform(-3, 1),        # 0.001–10
-            "reg_alpha":  lambda: 10**RNG.uniform(-4, 0),        # 1e-4–1
-            "reg_lambda": lambda: 10**RNG.uniform(-3, 1),        # 0.001–10
-            "scale_pos_weight": lambda: RNG.choice([1.0, spw, 1.25*spw]),
-            "n_estimators": lambda: RNG.integers(800, 2500)
-        }
-    else:  # lightgbm
-        space = {
-            "learning_rate": lambda: 10**RNG.uniform(-2.0, -0.7),
-            "num_leaves":    lambda: int(2**RNG.uniform(4, 7.5)),  # 16–181
-            "max_depth":     lambda: RNG.integers(-1, 11),
-            "min_child_samples": lambda: int(2**RNG.uniform(3, 8)), # 8–256
-            "subsample":     lambda: RNG.uniform(0.6, 1.0),
-            "colsample_bytree": lambda: RNG.uniform(0.6, 1.0),
-            "reg_alpha":     lambda: 10**RNG.uniform(-4, 0),
-            "reg_lambda":    lambda: 10**RNG.uniform(-3, 1),
-            "n_estimators":  lambda: RNG.integers(800, 2500),
-            "scale_pos_weight": lambda: RNG.choice([1.0, spw, 1.25*spw])
-        }
-    return space
-
-def sample_params(space):
-    return {k: v() for k, v in space.items()}
-
-def run_cv_xgb(X, y, params, monotone_vec=None, seed=42, n_splits=5, eval_metric="auc"):
+def cv_xgb(X, y, params, n_splits=5, seed=42, metric="auto"):
     import xgboost as xgb
+    if metric == "auto": metric = "aucpr" if y.mean() <= 0.20 else "auc"
     skf = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=seed)
-    oof = np.zeros(len(y)); feats = X.columns.tolist(); fi = np.zeros(len(feats))
-    mono_str = None
-    if monotone_vec is not None:
-        mono_str = "(" + ",".join(str(int(v)) for v in monotone_vec) + ")"
-    for tr_idx, va_idx in skf.split(X, y):
-        Xtr, Xva = X.iloc[tr_idx], X.iloc[va_idx]
-        ytr, yva = y[tr_idx], y[va_idx]
-        model = xgb.XGBClassifier(
-            objective="binary:logistic",
-            eval_metric=eval_metric,           # << changed
-            tree_method="hist",
-            n_jobs=os.cpu_count(),             # << added
-            random_state=seed,
-            early_stopping_rounds=300,
-            **params
-        )
-        if mono_str is not None:
-            model.set_params(monotone_constraints=mono_str)
-        model.fit(Xtr, ytr, eval_set=[(Xva, yva)], verbose=False)
-        p = model.predict_proba(Xva)[:,1]
-        oof[va_idx] = p
-        try: fi += model.feature_importances_
-        except Exception: pass
-    fi /= n_splits
-    return oof, pd.DataFrame({"feature": feats, "importance": fi}).sort_values("importance", ascending=False)
-
-def run_cv_lgb(X, y, params, monotone_vec=None, seed=42, n_splits=5):
-    import lightgbm as lgb
-    skf = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=seed)
-    oof = np.zeros(len(y))
+    oof = np.zeros(len(y), dtype=np.float32)
     feats = X.columns.tolist()
-    fi = np.zeros(len(feats))
-    for tr_idx, va_idx in skf.split(X, y):
-        Xtr, Xva = X.iloc[tr_idx], X.iloc[va_idx]
-        ytr, yva = y[tr_idx], y[va_idx]
-        model = lgb.LGBMClassifier(
-            objective="binary",
-            random_state=seed,
-            n_jobs=os.cpu_count(),
-            **params
+    fi = np.zeros(len(feats), dtype=np.float64)
+    for tr, va in skf.split(X, y):
+        model = xgb.XGBClassifier(
+            objective="binary:logistic", tree_method="hist", random_state=seed,
+            eval_metric=metric, early_stopping_rounds=200, **params
         )
-        if monotone_vec is not None:
-            model.set_params(monotone_constraints=monotone_vec)
-        model.fit(Xtr, ytr, eval_set=[(Xva, yva)], eval_metric="auc",
-                  callbacks=[lgb.early_stopping(stopping_rounds=300, verbose=False)])
-        p = model.predict_proba(Xva)[:,1]
-        oof[va_idx] = p
-        try:
-            fi += model.booster_.feature_importance(importance_type="gain")
-        except Exception:
-            pass
+        model.fit(X.iloc[tr], y[tr], eval_set=[(X.iloc[va], y[va])], verbose=False)
+        p = model.predict_proba(X.iloc[va])[:,1]; oof[va] = p
+        try: fi += model.feature_importances_
+        except: pass
     fi /= n_splits
     return oof, pd.DataFrame({"feature": feats, "importance": fi}).sort_values("importance", ascending=False)
 
-def maybe_wandb(args):
-    if not args.wandb:
-        return None
-    try:
-        import wandb
-        # Use specific entity and project for your CMU workspace
-        wandb.init(
-            entity=args.wandb_entity,
-            project=args.wandb_project or "Risk_Score", 
-            config=vars(args)
-        )
-        return wandb
-    except Exception as e:
-        print(f"[wandb] disabled ({e})")
-        return None
+def cv_lgb(X, y, params, n_splits=5, seed=42, metric="auto"):
+    import lightgbm as lgb
+    if metric == "auto": metric = "average_precision" if y.mean() <= 0.20 else "auc"
+    skf = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=seed)
+    oof = np.zeros(len(y), dtype=np.float32)
+    feats = X.columns.tolist()
+    fi = np.zeros(len(feats), dtype=np.float64)
+    for tr, va in skf.split(X, y):
+        model = lgb.LGBMClassifier(objective="binary", random_state=seed, n_jobs=-1, **params)
+        model.fit(X.iloc[tr], y[tr],
+                  eval_set=[(X.iloc[va], y[va])], eval_metric=metric,
+                  callbacks=[lgb.early_stopping(stopping_rounds=200, verbose=False)])
+        p = model.predict_proba(X.iloc[va])[:,1]; oof[va] = p
+        try: fi += model.booster_.feature_importance(importance_type="gain")
+        except: pass
+    fi /= n_splits
+    return oof, pd.DataFrame({"feature": feats, "importance": fi}).sort_values("importance", ascending=False)
 
 def main():
-    import argparse
     ap = argparse.ArgumentParser()
-    ap.add_argument("--data-root", default="data")
-    ap.add_argument("--out-dir", default="model_outputs/gbdt_sweep")
+    ap.add_argument("--data-root", required=True)
+    ap.add_argument("--label-column", default="label_clustered")
     ap.add_argument("--algo", choices=["xgb","lgb"], default="xgb")
-    ap.add_argument("--trials", type=int, default=60)
-    ap.add_argument("--seed", type=int, default=42)
+    ap.add_argument("--trials", type=int, default=50)
     ap.add_argument("--n-splits", type=int, default=5)
-    ap.add_argument("--wandb", action="store_true")
-    ap.add_argument("--wandb-project", default=None)
-    ap.add_argument("--wandb-entity", default="ved100-carnegie-mellon-university", 
-                    help="W&B entity (organization/username)")
-    ap.add_argument("--use-monotone", action="store_true",
-                    help="loads data/monotone_config.json if present")
-    ap.add_argument("--target", default=None, help="Explicit target column in y_label.csv")
-    ap.add_argument("--prune-corr", action="store_true", help="Apply correlation pruning if keep list not present")
-    ap.add_argument("--corr-thr", type=float, default=0.95, help="Correlation threshold for pruning")
-    ap.add_argument("--eval-metric", choices=["auc", "aucpr", "auto"], default="auto",
-                help="Early-stopping metric for XGB. 'auto' picks aucpr if prevalence<=0.20")
-
+    ap.add_argument("--seed", type=int, default=42)
+    ap.add_argument("--eval-metric", choices=["auto","auc","aucpr"], default="auto")
+    ap.add_argument("--splits-csv", default=None)
+    ap.add_argument("--out-dir", default="model_outputs/gbdt_cv")
     args = ap.parse_args()
 
-    Path(args.out_dir).mkdir(parents=True, exist_ok=True)
-    X, y, label_name = load_xy(args.data_root, target_name=args.target)
-    print(f"Loaded X={X.shape}, positives={int(y.sum())}/{len(y)}  (target={label_name})")
-    X = X.astype(np.float32)  # speed/memory friendly
-    prev = float(y.mean())
-    metric = args.eval_metric
-    if metric == "auto":
-        metric = "aucpr" if prev <= 0.20 else "auc"
-    print(f"[INFO] Prevalence={prev:.4%}; XGB eval_metric={metric}")
-    # Respect feature_keep_list.txt if present (produced by framework)
-    keep_path = Path(args.data_root)/"feature_keep_list.txt"
-    drop_path = Path(args.data_root)/"feature_drop_corr.txt"
+    run = None
+    if WANDB_AVAILABLE:
+        run = wandb.init(
+            entity="ved100-carnegie-mellon-university",
+            project="Risk_Score",
+            name=f"gbdt-{args.algo}-{args.label_column}",
+            config={**vars(args)},
+            tags=["gbdt", args.algo, args.label_column, "hyperparameter-sweep"]
+        )
 
-    if keep_path.exists():
-        keep = [ln.strip() for ln in keep_path.read_text().splitlines() if ln.strip()]
-        missing = [c for c in keep if c not in X.columns]
-        if missing:
-            print(f"[WARN] {len(missing)} kept features not in X; ignoring first few: {missing[:5]}")
-        X = X[[c for c in keep if c in X.columns]]
-        print(f"[KEEP-LIST] Using {X.shape[1]} features from feature_keep_list.txt")
+    out = Path(args.out_dir); out.mkdir(parents=True, exist_ok=True)
+    X, y, label = load_xy(Path(args.data_root), args.label_column)
+    prev = y.mean()
+    print(f"[GBDT] X={X.shape} positives={y.sum()}/{len(y)} prev={prev:.2%} target={label}")
+    if WANDB_AVAILABLE and run is not None:
+        wandb.log({"dataset/n_samples": len(X), "dataset/n_features": X.shape[1], "dataset/n_positives": int(y.sum()), "dataset/prevalence": float(prev)})
+
+    best = {"auc": -1}; records = []
+    if args.algo == "xgb": sampler = make_param_sampler_xgb(prev)
     else:
-        # If an explicit drop list exists, apply it defensively
-        if drop_path.exists():
-            to_drop = [ln.strip() for ln in drop_path.read_text().splitlines() if ln.strip()]
-            have = [c for c in to_drop if c in X.columns]
-            if have:
-                X = X.drop(columns=have)
-                print(f"[DROP-LIST] Dropped {len(have)} features from feature_drop_corr.txt")
-    if args.prune_corr:
-        # Light pruning at training time if no keep list
-        num_cols = X.select_dtypes(include=['number']).columns.tolist()
-        if len(num_cols) >= 2:
-            imp = X[num_cols].copy().fillna(X[num_cols].median(numeric_only=True))
-            # Simple priority by variance
-            priority = imp.var(numeric_only=True)
-            # Local prune function (same as in framework)
-            def _prune(Xdf, thr, prio):
-                corr = Xdf.corr().abs()
-                upper = corr.where(np.triu(np.ones(corr.shape), k=1).astype(bool))
-                to_drop = set()
-                for col in upper.columns:
-                    highs = upper.index[upper[col] > thr].tolist()
-                    for h in highs:
-                        if h in to_drop or col in to_drop: 
-                            continue
-                        drop = col if float(prio.get(col,0)) < float(prio.get(h,0)) else h
-                        to_drop.add(drop)
-                kept = [c for c in Xdf.columns if c not in to_drop]
-                return kept, sorted(list(to_drop))
-            kept, dropped = _prune(imp, args.corr_thr, priority)
-            X = X[kept + [c for c in X.columns if c not in num_cols]]  # keep non-numerics if any
-            print(f"[CORR-PRUNE] Dropped {len(dropped)} numeric features (> r={args.corr_thr})")
+        def sampler():
+            rng = np.random.default_rng(42)
+            return dict(
+                learning_rate=float(10**rng.uniform(-2.0, -0.7)),
+                num_leaves=int(2**rng.uniform(4, 7.5)),
+                max_depth=int(rng.integers(-1, 11)),
+                min_child_samples=int(2**rng.uniform(3, 8)),
+                subsample=float(rng.uniform(0.6,1.0)),
+                colsample_bytree=float(rng.uniform(0.6,1.0)),
+                reg_alpha=float(10**rng.uniform(-4, 0)),
+                reg_lambda=float(10**rng.uniform(-3, 1)),
+                n_estimators=int(rng.integers(800, 2000)),
+            )
 
-    # select backend
-    use_xgb = args.algo == "xgb" and (try_import_xgb() is not None)
-    use_lgb = args.algo == "lgb" and (try_import_lgb() is not None)
-    if not (use_xgb or use_lgb):
-        raise RuntimeError("Neither XGBoost nor LightGBM available. Please install one.")
-
-    wandb = maybe_wandb(args)
-    param_space = make_param_sampler("xgb" if use_xgb else "lgb", X, y)
-    monotone_vec = maybe_load_monotone(args.data_root, X.columns) if args.use_monotone else None
-
-    trial_rows, best = [], {"auc": -1}
     for t in range(1, args.trials+1):
-        params = sample_params(param_space)
-        if use_xgb:
-            oof, fi = run_cv_xgb(X, y, params, monotone_vec, seed=args.seed, n_splits=args.n_splits, eval_metric=metric)
+        params = sampler()
+        if args.algo == "xgb":
+            oof, fi = cv_xgb(X, y, params, n_splits=args.n_splits, seed=args.seed, metric=args.eval_metric)
         else:
-            oof, fi = run_cv_lgb(X, y, params, monotone_vec, seed=args.seed, n_splits=args.n_splits)
-
-        smry, dec = summarize_all(y, oof, label="oof")
-        row = {"trial": t, **params, **smry}
-        trial_rows.append(row)
-
+            oof, fi = cv_lgb(X, y, params, n_splits=args.n_splits, seed=args.seed, metric=args.eval_metric)
+        smry = summarize_all(y, oof, label="oof")
+        rec = {"trial": t, **params, **smry}; records.append(rec)
         if smry["auc"] > best["auc"]:
-            best = {"trial": t, "params": params, "auc": smry["auc"], "ap": smry["ap"]}
-            # save running best artifacts
-            fi.to_csv(Path(args.out_dir)/"feature_importance_running_best.csv", index=False)
-            dec.to_csv(Path(args.out_dir)/"deciles_running_best.csv", index=False)
-            pd.DataFrame({"oof_pred": oof, "y": y}).to_csv(Path(args.out_dir)/"oof_running_best.csv", index=False)
+            best = {"trial": t, "params": params, **smry}
+            fi.to_csv(out / "feature_importance_running_best.csv", index=False)
+            pd.DataFrame({"oof": oof, "y": y}).to_csv(out / "oof_running_best.csv", index=False)
+        print(f"[{t:03d}] AUC={smry['auc']:.4f} AP={smry['ap']:.4f}")
 
-        if wandb:
-            wandb.log({**smry, "trial": t})
+    pd.DataFrame(records).sort_values("auc", ascending=False).to_csv(out/"trials_summary.csv", index=False)
+    (out/"best_params.json").write_text(json.dumps(best, indent=2))
 
-        print(f"[{t:03d}/{args.trials}] AUC={smry['auc']:.4f}  AP={smry['ap']:.4f}")
+    if WANDB_AVAILABLE and run is not None:
+        wandb.log({"best_model/auc": best["auc"], "best_model/ap": best["ap"],
+                   "best_model/ks": best["ks"], "best_model/gini": best["gini"],
+                   "best_model/brier": best["brier"], "best_model/logloss": best["logloss"]})
 
-    trials_df = pd.DataFrame(trial_rows).sort_values("auc", ascending=False)
-    trials_df.to_csv(Path(args.out_dir)/"trials_summary.csv", index=False)
-    dump_json(best, Path(args.out_dir)/"best_params.json")
+    # Calibrate OOF
+    oof_df = pd.read_csv(out/"oof_running_best.csv")
+    lr = LogisticRegression(max_iter=1000).fit(oof_df[["oof"]].values, oof_df["y"].values)
+    oof_cal = lr.predict_proba(oof_df[["oof"]].values)[:,1]
+    smry_cal = summarize_all(oof_df["y"].values, oof_cal, label="oof_cal")
+    pd.DataFrame({"oof_cal": oof_cal, "y": oof_df["y"].values}).to_csv(out/"oof_running_best_calibrated.csv", index=False)
+    (out/"calibration_summary.json").write_text(json.dumps(smry_cal, indent=2))
+    if WANDB_AVAILABLE and run is not None:
+        wandb.log({"calibrated/auc": smry_cal["auc"], "calibrated/ap": smry_cal["ap"], "calibrated/ks": smry_cal["ks"], "calibrated/logloss": smry_cal["logloss"]})
 
-    # Platt calibration on best OOF
-    oof_df = pd.read_csv(Path(args.out_dir)/"oof_running_best.csv")
-    clf_cal = LogisticRegression(max_iter=1000).fit(oof_df[["oof_pred"]].values, oof_df["y"].values)
-    oof_cal = clf_cal.predict_proba(oof_df[["oof_pred"]].values)[:,1]
-    cal_smry, cal_dec = summarize_all(oof_df["y"].values, oof_cal, label="oof_cal")
-    cal_dec.to_csv(Path(args.out_dir)/"deciles_running_best_calibrated.csv", index=False)
-    dump_json({"calibration_auc": cal_smry["auc"], "calibration_ap": cal_smry["ap"]},
-              Path(args.out_dir)/"calibration_summary.json")
+    # Optional test evaluation
+    if args.splits_csv and Path(args.splits_csv).exists():
+        sp = pd.read_csv(args.splits_csv)
+        test_idx = np.where(sp["is_test"].values==1)[0]
+        if len(test_idx) > 0:
+            if args.algo == "xgb":
+                import xgboost as xgb
+                final = xgb.XGBClassifier(objective="binary:logistic", tree_method="hist",
+                                          random_state=args.seed, **best["params"])
+            else:
+                import lightgbm as lgb
+                final = lgb.LGBMClassifier(objective="binary", random_state=args.seed, **best["params"])
+            final.fit(X, y)
+            ptest = final.predict_proba(X.iloc[test_idx])[:,1]
+            smry_test = summarize_all(y[test_idx], ptest, label="test")
+            (out/"test_summary.json").write_text(json.dumps(smry_test, indent=2))
+            dec = decile_table(y[test_idx], ptest); dec.to_csv(out/"deciles_test.csv", index=False)
+            if WANDB_AVAILABLE and run is not None:
+                wandb.log({"test/auc": smry_test["auc"], "test/ap": smry_test["ap"], "test/ks": smry_test["ks"],
+                           "test/brier": smry_test["brier"], "test/logloss": smry_test["logloss"]})
+            print(f"[TEST] AUC={smry_test['auc']:.4f} AP={smry_test['ap']:.4f}")
 
-    if wandb:
-        wandb.log({"oof_cal_auc": cal_smry["auc"], "oof_cal_ap": cal_smry["ap"]})
+    if WANDB_AVAILABLE and run is not None:
         wandb.finish()
-
     print("\n== DONE ==")
-    print(f"Best trial #{best['trial']}  AUC={best['auc']:.4f}, AP={best['ap']:.4f}")
-    print(f"Artifacts → {args.out_dir}")
+    print(json.dumps(best, indent=2))
 
 if __name__ == "__main__":
     main()
